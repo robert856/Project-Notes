@@ -597,17 +597,19 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  color: #a1aa97;
+  color: #89977b;
+  min-width: 18px;
+  min-height: 22px;
 }
 .task-grip {
   cursor: grab;
-  opacity: 0.45;
+  opacity: 0.65;
 }
 .task-grip:active {
   cursor: grabbing;
 }
 .task-remove {
-  opacity: 0;
+  opacity: 0.6;
 }
 .inline-task:hover .task-grip,
 .inline-task:focus-within .task-grip,
@@ -649,4 +651,9 @@
 }
 .page-own-content .inline-checklist {
   max-width: 520px;
+}
+
+.inline-task input:not([type]):focus {
+  background: #f4f7ed;
+  border-radius: 3px;
 }

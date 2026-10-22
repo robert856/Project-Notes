@@ -57,6 +57,8 @@ function PageNode({ data, selected }: NodeProps) {
       className={`page-card page-format-${p.kind} page-color-${p.color} page-tile-tone-${[...p.id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 5}`}
     >
       <NodeResizer
+        lineStyle={{ borderColor: "transparent" }}
+        handleStyle={{ backgroundColor: "#859775", borderRadius: "50%" }}
         minWidth={170}
         minHeight={120}
         isVisible={
