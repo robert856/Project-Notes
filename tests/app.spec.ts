@@ -340,9 +340,15 @@ test("moves and resizes pages and saves their canvas positions", async ({
   page,
 }) => {
   await page.goto("/");
-  await make(page, "Movable");
+  await page.getByRole("button", { name: "Add text", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Page title", exact: true })
+    .fill("Movable");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
   const a = (await node(page, "Movable").boundingBox())!;
-  await drag(page, "Movable", { x: a.x + 150, y: a.y + 180 });
+  await page.mouse.move(a.x + 8, a.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(a.x + 150, a.y + 180, { steps: 20 });
   await page.mouse.up();
   await expect
     .poll(async () =>

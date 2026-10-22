@@ -20,6 +20,7 @@ import {
   Trash2,
   SlidersHorizontal,
   Users,
+  Pencil,
   ChevronRight,
   RefreshCw,
   LogOut,
@@ -36,6 +37,7 @@ import { PageEditor } from "./PageEditor";
 import { ArrangePanel, type Arrangement } from "./ArrangePanel";
 import { alignCards, distributeCards } from "./alignment";
 import {
+  pageSize,
   availablePosition,
   pageTree,
   ancestors,
@@ -395,7 +397,9 @@ export default function PagesApp() {
     await save([{ id: p.id, version: p.version, content: lines.join("\n") }]);
   };
   const arrangePages = async (direction: Arrangement) => {
-    const targets = selected.filter(canEdit);
+    const targets = selected
+      .filter(canEdit)
+      .map((p) => ({ ...p, ...pageSize(p) }));
     const changed =
       direction === "horizontal" || direction === "vertical"
         ? distributeCards(targets, direction)
@@ -625,6 +629,15 @@ export default function PagesApp() {
               <X size={17} />
             </button>
           </header>
+          {db && user && hasBrowserWork && (
+            <button
+              className="button"
+              disabled={importing || busy}
+              onClick={() => void importBrowser()}
+            >
+              {importing ? "Importing…" : "Import browser pages"}
+            </button>
+          )}
           {tree.map((p) => (
             <button
               key={p.id}
@@ -650,6 +663,17 @@ export default function PagesApp() {
                 {crumb(p.id, p.title)}
               </span>
             ))}
+          </div>
+          <div className="pages-search-inline">
+            <label>
+              <Search size={15} />
+              <input
+                aria-label="Search pages"
+                placeholder="Search pages…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
           </div>
           <div className="pages-account">
             <button
@@ -697,31 +721,35 @@ export default function PagesApp() {
             {active && (
               <>
                 <button
-                  className="button"
+                  className="icon-button"
+                  aria-label="Edit page"
+                  title="Edit page"
                   disabled={!canEdit(active) || busy}
                   onClick={() => setEditor(active)}
                 >
-                  Edit page
+                  <Pencil size={16} />
                 </button>
                 <button
-                  className="button"
+                  className="icon-button"
+                  aria-label="Share page"
+                  title="Share page"
                   onClick={() => {
                     setModalMessage("");
                     setModal("share");
                   }}
                 >
                   <Users size={15} />
-                  Share
                 </button>
               </>
             )}
             <button
-              className="button primary"
+              className="icon-button"
+              aria-label="New page"
+              title="New page"
               disabled={busy || !canCreate}
               onClick={() => action(() => add("page"))}
             >
               <Plus size={16} />
-              New page
             </button>
           </div>
         </section>
@@ -750,32 +778,6 @@ export default function PagesApp() {
             )}
           </section>
         )}
-        <div className="pages-search">
-          <label>
-            <Search size={15} />
-            <input
-              aria-label="Search pages"
-              placeholder="Search pages…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          {db && user && hasBrowserWork && (
-            <button
-              className="button"
-              disabled={importing || busy}
-              onClick={() => void importBrowser()}
-            >
-              {importing ? "Importing…" : "Import browser pages"}
-            </button>
-          )}
-          {query && (
-            <small>
-              Results across your accessible pages · open a result to see its
-              hierarchy
-            </small>
-          )}
-        </div>
         {loading ? (
           <div className="pages-loading">Loading pages…</div>
         ) : (

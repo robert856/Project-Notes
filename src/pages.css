@@ -13,7 +13,7 @@
   position: relative;
 }
 .pages-topbar {
-  height: 48px;
+  height: 42px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -54,11 +54,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 15px;
-  padding: 16px 25px;
+  padding: 7px 24px;
+  min-height: 46px;
+  border-bottom: 1px solid #e1e5db;
   background: #fbfcf8;
 }
 .pages-heading h1 {
-  font-size: 21px;
+  font-size: 14px;
   margin: 0;
   font-weight: 500;
 }
@@ -66,30 +68,38 @@
   display: flex;
   gap: 8px;
 }
-.pages-search {
+.pages-topbar .breadcrumbs {
+  flex: 1;
+}
+.pages-search-inline {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 8px 25px;
-  background: #fbfcf8;
-  border-bottom: 1px solid #e0e4d9;
+  flex-shrink: 1;
+  min-width: 60px;
 }
-.pages-search label {
+.pages-search-inline label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  color: #88927d;
 }
-.pages-search input {
+.pages-search-inline input {
+  width: 130px;
+  min-width: 0;
   border: 0;
   background: transparent;
-  width: 180px;
-  font-size: 12px;
   padding: 4px;
+  font-size: 11px;
   outline: none;
 }
-.pages-search small {
+.pages-heading-actions .icon-button {
+  width: 28px;
+  height: 28px;
+  color: #7b886d;
+}
+.pages-topbar .button {
+  padding: 5px 9px;
   font-size: 11px;
-  color: #7d876f;
 }
 .pages-canvas {
   flex: 1;
@@ -376,11 +386,11 @@
     padding: 0 10px;
   }
   .pages-heading {
-    padding: 14px 12px;
+    padding: 6px 12px;
     flex-wrap: wrap;
   }
   .pages-heading h1 {
-    font-size: 18px;
+    font-size: 14px;
   }
   .pages-heading-actions {
     flex-wrap: wrap;
@@ -430,4 +440,122 @@
   width: 100%;
   max-height: 160px;
   object-fit: contain;
+}
+/* Restore the compact, softly colored page tiles, with labels below the icon. */
+.page-card.page-format-page {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 8px 4px;
+  gap: 8px;
+  align-items: center;
+  overflow: visible;
+}
+.page-format-page .page-icon-block {
+  width: 73px;
+  height: 73px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 17px;
+  background: #ded2a6;
+  color: #78682e;
+  box-shadow: 0 2px 4px #46512b09;
+}
+.page-format-page .page-symbol {
+  color: inherit;
+}
+.page-tile-tone-1 .page-icon-block {
+  background: #d8e3c9;
+  color: #658047;
+}
+.page-tile-tone-2 .page-icon-block {
+  background: #ded8ea;
+  color: #7e6a9e;
+}
+.page-tile-tone-3 .page-icon-block {
+  background: #ead5ca;
+  color: #a47b64;
+}
+.page-tile-tone-4 .page-icon-block {
+  background: #cbdde1;
+  color: #62838b;
+}
+.page-color-cream .page-icon-block {
+  background: #ded2a6;
+  color: #78682e;
+}
+.page-color-pink .page-icon-block {
+  background: #ead5ca;
+  color: #a47b64;
+}
+.page-color-lavender .page-icon-block {
+  background: #ded8ea;
+  color: #7e6a9e;
+}
+.page-color-green .page-icon-block {
+  background: #d8e3c9;
+  color: #658047;
+}
+.page-format-page .page-card-title {
+  text-align: center;
+  width: 155px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 550;
+}
+.page-format-page .page-title-input {
+  text-align: center;
+  width: 155px;
+  font-size: 12px;
+}
+.page-format-page .page-preview {
+  display: none;
+}
+.page-format-page .page-open {
+  justify-content: center;
+  gap: 7px;
+  font-size: 10px;
+}
+.page-format-page .page-open svg {
+  opacity: 0;
+}
+.page-format-page:hover .page-open svg {
+  opacity: 0.8;
+}
+.pages-canvas .react-flow__node.selected .page-format-page,
+.pages-canvas .react-flow__node.page-landing .page-format-page {
+  outline: none;
+  box-shadow: none;
+}
+.pages-canvas .react-flow__node.selected .page-icon-block {
+  outline: 2px solid #829969;
+  outline-offset: 4px;
+}
+.pages-canvas .react-flow__node.page-landing .page-icon-block {
+  outline: 3px solid #718461;
+  outline-offset: 5px;
+  box-shadow: 0 0 0 8px #71846118;
+}
+
+@media (max-width: 700px) {
+  .pages-topbar {
+    gap: 6px;
+  }
+  .pages-search-inline input {
+    width: 72px;
+  }
+  .pages-heading {
+    flex-wrap: nowrap;
+  }
+  .pages-heading h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pages-heading-actions {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
 }

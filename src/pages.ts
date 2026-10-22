@@ -70,7 +70,7 @@ export function blankPage(
     content: "",
     x: 100,
     y: 100,
-    width: kind === "page" ? 190 : 280,
+    width: kind === "page" ? 170 : 280,
     height: kind === "page" ? 150 : 230,
     color: "white",
     version: 1,
@@ -207,4 +207,11 @@ export function availablePosition(siblings: Page[], width = 280, height = 230) {
     }
   }
   return { x, y };
+}
+
+/** Container pages keep the compact tile presentation at every nesting level. */
+export function pageSize(page: Page) {
+  return page.kind === "page"
+    ? { width: 170, height: 150 }
+    : { width: page.width, height: page.height };
 }

@@ -14,7 +14,7 @@ import {
 import { Files, ArrowUpRight, Download, Link as LinkIcon } from "lucide-react";
 import Markdown from "react-markdown";
 import type { Page } from "./pages";
-import { ancestors } from "./pages";
+import { ancestors, pageSize } from "./pages";
 import { safeUrl } from "./model";
 import { youtubeId, acceptedDropEffect } from "./drops";
 import { fileUrl } from "./pageRepository";
@@ -53,12 +53,12 @@ function PageNode({ data, selected }: NodeProps) {
   const video = p.kind === "link" ? youtubeId(p.content) : null;
   return (
     <article
-      className={`page-card page-format-${p.kind} page-color-${p.color}`}
+      className={`page-card page-format-${p.kind} page-color-${p.color} page-tile-tone-${[...p.id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 5}`}
     >
       <NodeResizer
         minWidth={170}
         minHeight={120}
-        isVisible={!!selected && !!data.editable}
+        isVisible={p.kind !== "page" && !!selected && !!data.editable}
         onResizeEnd={(_e, size) =>
           (
             data.resize as (
@@ -69,7 +69,9 @@ function PageNode({ data, selected }: NodeProps) {
         }
       />
       {p.kind === "page" && (
-        <Files className="page-symbol" size={32} strokeWidth={1.4} />
+        <div className="page-icon-block">
+          <Files className="page-symbol" size={30} strokeWidth={1.5} />
+        </div>
       )}
       {renaming ? (
         <input
@@ -234,8 +236,7 @@ export function PageCanvas({
         id: p.id,
         type: "page",
         position: { x: p.x, y: p.y },
-        width: p.width,
-        height: p.height,
+        ...pageSize(p),
         draggable: editable(p),
         selected: previous.find((n) => n.id === p.id)?.selected || false,
         data: {
