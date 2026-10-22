@@ -42,8 +42,7 @@ test("create, edit, resize, move, persist and delete a card", async ({
   await expect(saved).toBeVisible();
   expect((await saved.boundingBox())!.width).toBeGreaterThan(before.width);
   await saved.dblclick();
-  page.once("dialog", (d) => d.accept());
-  await page.getByTitle("Delete card", { exact: true }).click();
+  await page.getByTitle("Delete note", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "A test idea" })).toHaveCount(
     0,
   );
@@ -61,13 +60,11 @@ test("dashboard, search and mobile navigation", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   await page
     .getByRole("button", {
-      name: "Open True Myth: Addison’s Midnight Walk",
+      name: "Select True Myth: Addison’s Midnight Walk",
       exact: true,
     })
-    .click();
-  await page
-    .getByRole("textbox", { name: "Search boards and cards" })
-    .fill("creatures");
+    .dblclick();
+  await page.getByRole("textbox", { name: "Search notes" }).fill("creatures");
   await expect(page.locator(".explorer-tile")).toHaveCount(1);
 });
 
@@ -271,9 +268,7 @@ test("PDF drop is captured over cards, survives refresh, and preserves its bytes
   page,
 }) => {
   await page.goto("/");
-  await page
-    .getByRole("textbox", { name: "Search boards and cards" })
-    .fill("Addison");
+  await page.getByRole("textbox", { name: "Search notes" }).fill("Addison");
   const target = page.locator(".canvas-card").first();
   await expect(target).toBeVisible();
   // A child handler must not be able to swallow the outer canvas drop.
@@ -302,9 +297,9 @@ test("PDF drop is captured over cards, survives refresh, and preserves its bytes
     .locator(".react-flow__node")
     .filter({ hasText: "project-notes.pdf" });
   await expect(card).toBeVisible();
-  await expect(
-    page.getByRole("textbox", { name: "Search boards and cards" }),
-  ).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "Search notes" })).toHaveValue(
+    "",
+  );
   await page.reload();
   await expect(card).toBeVisible();
   const [download] = await Promise.all([
@@ -378,7 +373,7 @@ test("native file drops outside the canvas cannot replace the page", async ({
       });
     expect(prevented).toEqual({ over: true, drop: true });
     await expect(page.getByRole("status")).toContainText(
-      "Drop inside the board canvas",
+      "Drop inside the note canvas",
     );
     expect(new URL(page.url()).pathname).toBe("/");
   }
@@ -447,63 +442,6 @@ test("distributes cards in both directions and saves the spacing", async ({
   expect(await equalGaps("y")).toBe(true);
 });
 
-test("project deletion requires confirmation, preserves another project, and persists", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page
-    .getByRole("navigation", { name: "Canvas tools" })
-    .getByRole("button", { name: "Home", exact: true })
-    .click();
-  page.once("dialog", (d) => d.accept("Keep this project"));
-  await page
-    .getByRole("button", { name: "Create project", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Toggle navigation", exact: true })
-    .click();
-  await page
-    .getByRole("button", {
-      name: "True Myth: Addison’s Midnight Walk",
-      exact: true,
-    })
-    .click();
-  page.once("dialog", (d) => d.dismiss());
-  await page
-    .getByRole("button", { name: "Delete project", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", {
-      name: "True Myth: Addison’s Midnight Walk",
-      exact: true,
-    }),
-  ).toBeVisible();
-  page.once("dialog", (d) => d.accept());
-  await page
-    .getByRole("button", { name: "Delete project", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", {
-      name: "True Myth: Addison’s Midnight Walk",
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Keep this project", exact: true }),
-  ).toBeVisible();
-  await page.reload();
-  const state = await page.evaluate(() => ({
-    projects: JSON.parse(localStorage.getItem("stillroom-projects") || "[]"),
-    boards: JSON.parse(localStorage.getItem("stillroom-boards") || "[]"),
-    cards: JSON.parse(localStorage.getItem("stillroom-cards") || "[]"),
-  }));
-  expect(state.projects.map((p: { title: string }) => p.title)).toEqual([
-    "Keep this project",
-  ]);
-  expect(state.boards).toHaveLength(0);
-  expect(state.cards).toHaveLength(0);
-});
-
 test("canvas project tiles can move, open boards, and retain their layout", async ({
   page,
 }) => {
@@ -545,16 +483,155 @@ test("canvas project tiles can move, open boards, and retain their layout", asyn
   ).toBe(layout);
   await project
     .getByRole("button", {
-      name: "Open True Myth: Addison’s Midnight Walk",
+      name: "Select True Myth: Addison’s Midnight Walk",
       exact: true,
     })
-    .click();
+    .dblclick();
   await expect(page.locator(".explorer-tile")).toHaveCount(3);
   await page
-    .getByRole("button", { name: "Open The story room", exact: true })
-    .click();
+    .getByRole("button", { name: "Select The story room", exact: true })
+    .dblclick();
   await expect(
     page.getByRole("heading", { name: "The story room", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".canvas-card")).toHaveCount(8);
+});
+
+test("single-click selects projects and notes; Delete is immediate and Undo restores them", async ({
+  page,
+}) => {
+  let dialogs = 0;
+  page.on("dialog", (d) => {
+    dialogs++;
+    void d.dismiss();
+  });
+  await page.goto("/");
+  const home = page
+    .getByRole("navigation", { name: "Canvas tools" })
+    .getByRole("button", { name: "Home", exact: true });
+  await home.click();
+  const project = page.getByRole("button", {
+    name: "Select True Myth: Addison’s Midnight Walk",
+    exact: true,
+  });
+  await project.click();
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Delete");
+  await expect(project).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeEnabled();
+  await page.keyboard.press("Control+z");
+  await expect(project).toBeVisible();
+  await project.dblclick();
+  const note = page.getByRole("button", {
+    name: "Select The story room",
+    exact: true,
+  });
+  await note.click();
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(1);
+  await page.keyboard.press("Backspace");
+  await expect(note).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(note).toBeVisible();
+  await note.dblclick();
+  const text = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "What if the forest remembered?" });
+  await text.locator("h3").click();
+  await expect(text).toHaveClass(/selected/);
+  await page.keyboard.press("Delete");
+  await expect(text).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(text).toBeVisible();
+  expect(dialogs).toBe(0);
+  await page.reload();
+  await expect(text).toBeVisible();
+});
+
+test("Undo reverses a saved edit while typing keeps native text undo and deletion", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const note = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "What if the forest remembered?" });
+  await note.dblclick();
+  const title = page.getByLabel("Title", { exact: true });
+  await title.fill("Changed title");
+  await title.press("End");
+  await title.press("Backspace");
+  await expect(title).toHaveValue("Changed titl");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Changed titl", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "What if the forest remembered?",
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("multi-note deletion is immediate, restores in one undo, and supports consecutive undos", async ({
+  page,
+}) => {
+  let dialogs = 0;
+  page.on("dialog", (d) => {
+    dialogs++;
+    void d.dismiss();
+  });
+  await page.goto("/");
+  await expect(page.locator(".canvas-card")).toHaveCount(8);
+  await page.keyboard.press("Control+a");
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(8);
+  await page.keyboard.press("Delete");
+  await expect(page.locator(".canvas-card")).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(page.locator(".canvas-card")).toHaveCount(8);
+  const first = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "What if the forest remembered?" });
+  await first.locator("h3").click();
+  await page.keyboard.press("Delete");
+  await expect(first).toHaveCount(0);
+  const second = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "Keep this feeling" });
+  await second.locator("h3").click();
+  await page.keyboard.press("Delete");
+  await expect(second).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(second).toBeVisible();
+  await expect(first).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(first).toBeVisible();
+  expect(dialogs).toBe(0);
+});
+
+test("Undo restores a moved project tile to its original position", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("navigation", { name: "Canvas tools" })
+    .getByRole("button", { name: "Home", exact: true })
+    .click();
+  const tile = page.locator(".explorer-open").first();
+  const before = await tile.boundingBox();
+  if (!before) throw Error("Missing tile");
+  await page.mouse.move(before.x + 25, before.y + 25);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 125, before.y + 85, { steps: 10 });
+  await page.mouse.up();
+  expect((await tile.boundingBox())!.x).toBeGreaterThan(before.x + 50);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect
+    .poll(async () => Math.round((await tile.boundingBox())!.x))
+    .toBe(Math.round(before.x));
 });

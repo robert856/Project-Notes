@@ -4,11 +4,12 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  SelectionMode,
   applyNodeChanges,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { Folder, LayoutGrid, Plus, ArrowUpRight } from "lucide-react";
+import { Folder, LayoutGrid, Plus, ArrowUpRight, Trash2 } from "lucide-react";
 export interface ExplorerItem {
   id: string;
   title: string;
@@ -22,11 +23,13 @@ function Tile({ data }: NodeProps) {
     <div className="explorer-tile">
       <button
         className={`explorer-open tile-color-${Number(data.index) % 5}`}
-        onClick={(event) => {
-          if (event.detail === 0)
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.stopPropagation();
             void (data.open as (id: string) => void)(item.id);
+          }
         }}
-        aria-label={`Open ${item.title}`}
+        aria-label={`Select ${item.title}`}
       >
         <Icon size={30} strokeWidth={1.5} />
         <ArrowUpRight className="tile-arrow" size={13} />
@@ -43,14 +46,69 @@ export function ExplorerCanvas({
   onOpen,
   onCreate,
   label,
+  onDelete,
+  canDelete = true,
+  recordUndo,
 }: {
   items: ExplorerItem[];
   scope: string;
   onOpen: (id: string) => void;
   onCreate?: () => void;
   label: string;
+  onDelete: (ids: string[]) => Promise<void>;
+  canDelete?: boolean;
+  recordUndo: (action: () => Promise<void>) => void;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [layoutRevision, setLayoutRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setLayoutRevision((v) => v + 1);
+    window.addEventListener("stillroom-layout-change", refresh);
+    return () => window.removeEventListener("stillroom-layout-change", refresh);
+  }, []);
+  const [deleting, setDeleting] = useState(false);
+  const selected = nodes.filter((n) => n.selected);
+  const deleteSelection = async () => {
+    if (deleting || !canDelete || !selected.length) return;
+    setDeleting(true);
+    try {
+      await onDelete(selected.map((n) => n.id));
+    } finally {
+      setDeleting(false);
+    }
+  };
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (
+        (event.target as HTMLElement).closest(
+          'input,textarea,select,[contenteditable="true"],[role="dialog"],.modal-backdrop',
+        )
+      )
+        return;
+      if (event.repeat) return;
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        selected.length
+      ) {
+        event.preventDefault();
+        void deleteSelection();
+      }
+      if (event.key === "Enter" && selected.length === 1) {
+        event.preventDefault();
+        onOpen(selected[0].id);
+      }
+      if (event.key === "Escape")
+        setNodes((previous) =>
+          previous.map((n) => ({ ...n, selected: false })),
+        );
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        setNodes((previous) => previous.map((n) => ({ ...n, selected: true })));
+      }
+    };
+    document.addEventListener("keydown", keyboard);
+    return () => document.removeEventListener("keydown", keyboard);
+  }, [nodes, deleting, canDelete, onDelete, onOpen]);
   useEffect(() => {
     let saved: Record<string, { x: number; y: number }> = {};
     try {
@@ -60,9 +118,10 @@ export function ExplorerCanvas({
     } catch {
       /* A damaged layout does not affect project data. */
     }
-    setNodes(
+    setNodes((previous) =>
       items.map((item, index) => ({
         id: item.id,
+        selected: previous.some((n) => n.id === item.id && n.selected),
         type: "tile",
         position: saved[item.id] || {
           x: 100 + (index % 5) * 200,
@@ -72,7 +131,7 @@ export function ExplorerCanvas({
         style: { width: 155 },
       })),
     );
-  }, [items, scope]);
+  }, [items, scope, layoutRevision]);
   return (
     <div className="explorer-canvas">
       <ReactFlow
@@ -84,14 +143,22 @@ export function ExplorerCanvas({
         onNodeDragStop={(_event, node) => {
           try {
             const key = `stillroom-layout:${scope}`;
-            const saved = JSON.parse(localStorage.getItem(key) || "{}");
+            const oldLayout = localStorage.getItem(key);
+            const saved = JSON.parse(oldLayout || "{}");
             saved[node.id] = node.position;
             localStorage.setItem(key, JSON.stringify(saved));
+            recordUndo(async () => {
+              if (oldLayout === null) localStorage.removeItem(key);
+              else localStorage.setItem(key, oldLayout);
+              window.dispatchEvent(new Event("stillroom-layout-change"));
+            });
           } catch {
             /* Layout is personal; project data is unaffected. */
           }
         }}
-        onNodeClick={(_event, node) => onOpen(node.id)}
+        onNodeDoubleClick={(_event, node) => onOpen(node.id)}
+        multiSelectionKeyCode={["Shift", "Meta", "Control"]}
+        selectionMode={SelectionMode.Partial}
         panOnDrag={[1, 2]}
         selectionOnDrag
         minZoom={0.3}
@@ -107,6 +174,24 @@ export function ExplorerCanvas({
         />
         <Controls showInteractive={false} />
       </ReactFlow>
+      {!!selected.length && (
+        <div
+          className="explorer-selection"
+          role="toolbar"
+          aria-label="Selected items"
+        >
+          <span>{selected.length} selected</span>
+          {selected.length === 1 && (
+            <button onClick={() => onOpen(selected[0].id)}>Open</button>
+          )}
+          <button
+            disabled={!canDelete || deleting}
+            onClick={() => void deleteSelection()}
+          >
+            <Trash2 size={15} /> {deleting ? "Deleting…" : "Delete selected"}
+          </button>
+        </div>
+      )}
       {!items.length && (
         <div className="explorer-empty">
           <Folder size={32} strokeWidth={1} />
@@ -120,7 +205,7 @@ export function ExplorerCanvas({
         </div>
       )}
       <div className="explorer-caption">
-        Drag to arrange · Click a tile to open
+        Click to select · Double-click or Enter to open · Delete to remove
       </div>
     </div>
   );

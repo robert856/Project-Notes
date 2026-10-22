@@ -13,7 +13,7 @@ npm run build
 Without environment variables, the app explicitly runs as a **local demo**. Cards, boards and projects are stored in this browser’s localStorage. This is not shared data or an authenticated workspace. Clearing browser storage removes demo edits. Connections are session-only. Dropped files are kept in this browser’s IndexedDB, not on a shared server. Clearing site data removes those files. No account is needed for the demo.
 
 ## Connect Supabase
-1. Create a Supabase project in your own account. In the SQL editor run `supabase/migrations/001_initial.sql` once, or apply it with the Supabase CLI. Do not run it against an existing unrelated schema.
+1. Create a Supabase project in your own account. In the SQL editor run `supabase/migrations/001_initial.sql` and then `002_reversible_delete.sql` in order, or apply them with the Supabase CLI. Existing installations must apply migration 002 before using deletion/undo. Do not run it against an existing unrelated schema.
 2. Copy `.env.example` to `.env.local`. Set `VITE_SUPABASE_URL` and the public anon/publishable client key from the project API settings. Never use a service-role or secret key. Vite variables are embedded in the public bundle.
 3. In Authentication → URL configuration, set Site URL to your production repository URL, for example `https://robert856.github.io/Project-Notes/`. Add that exact URL and `http://localhost:5173/` to the permitted redirect URLs. Enable email authentication and configure production SMTP for reliable magic-link delivery. Keep email verification enabled.
 4. Restart Vite. Use the sign-in dialog to request a magic link. Once signed in, use the + beside Projects to create your first project, then create boards. Demo content is intentionally not uploaded to your account.
@@ -36,12 +36,12 @@ The frontend is static; **GitHub Pages hosts the frontend while Supabase stores 
 4. The included workflow installs the lockfile, tests, builds, and deploys `dist`. Vite uses `base: './'`, generating relative asset paths suitable for `/Project-Notes/` and custom domains. The app does not require server-side route rewrites.
 5. Verify the deployed URL and sign-in redirect after the workflow succeeds.
 
-No Supabase instance has been provisioned, migrations applied, production authentication verified, or GitHub deployment performed by this implementation.
+Hosted Supabase provisioning, migration application, and production authentication have not been verified. GitHub Pages deployment is handled by the included workflow; check the latest run for its current result.
 
 ## Current scope
 Movable and resizable cards, Markdown notes (raw HTML disabled), external images, links, checklists, private file uploads, board creation/rename/duplication/deletion, card duplication/deletion, project creation, role-scoped collaboration, and title/content search. Mobile navigation and canvas pan/zoom are supported; desktop is the primary experience.
 
-Group cards are visual headings, not parent containers; move related cards independently. Connections are intentionally session-only and are labeled as such when added. Rich text uses Markdown editing rather than a WYSIWYG toolbar. Image cards use external URLs; use file cards for private image attachments. Deleting cards/boards removes metadata but does not automatically remove stored blobs: plan a server-side orphan cleanup task before large-scale use. No realtime, chat or payments.
+Group cards are visual headings, not parent containers; move related cards independently. Connections are intentionally session-only and are labeled as such when added. Rich text uses Markdown editing rather than a WYSIWYG toolbar. Image cards use external URLs; use file cards for private image attachments. Deletion hides records but retains their data and stored blobs for authorized undo; a separate retention/purge policy is needed for permanent cleanup. No realtime, chat or payments.
 
 Before production, execute two-user acceptance checks against your own Supabase project: outsider cannot select any project data or download files; viewer cannot mutate; editor can edit; only owner can invite; two browser sessions editing version 1 cause the second save to fail without replacing the first. Test private attachment download and auth redirects on the actual Pages URL. Local tests cannot establish those account-specific guarantees.
 
@@ -58,9 +58,18 @@ Drag a selected card to move the selected set together. The alignment bar offers
 ### Distribute and delete projects
 Select at least three cards, then choose **Distribute → Horizontally** (across) or **Vertically** (down). Equal gaps use the cards’ actual dimensions and preserve their spatial order. If the selection is too crowded, distribution expands it with 24px gaps instead of retaining overlaps. Positions use the same version-checked saves as alignment.
 
-To delete a project, select it in the sidebar and click **Delete project** at the top-right, then confirm. This permanently deletes that project and its boards and cards. Only owners can delete shared projects; the database policy enforces this. Cancel leaves the project unchanged. As with board/card deletion, stored file blobs are not automatically purged; attachment metadata is deleted and cloud access is revoked when membership is removed by the project cascade. Server-side orphan cleanup remains a separate storage maintenance task.
+Click a project or note once to select it, then press Delete/Backspace or click its selection Delete button. Deletion is immediate, without confirmation. Double-click or press Enter to open a selected project/note. Only owners can delete shared projects; editors can delete notes. RLS and the reversible deletion RPC enforce permissions.
 
 ## Canvas navigation and minimal tools
-Use the small **Home** mark at the top of the left rail for the project canvas. Project tiles open a project's board canvas; board tiles open their cards. Tiles can be freely dragged. Their layout is personal to this browser (`stillroom-layout:*` in localStorage), including when Supabase is connected; project/board records and card contents still use the existing shared data model. Tile positions are not currently shared across collaborators.
+Use the small **Home** mark at the top of the left rail for the project canvas. Double-click project tiles to open their notes; double-click a container note to open the notes inside. Tiles can be freely dragged. Their layout is personal to this browser (`stillroom-layout:*` in localStorage), including when Supabase is connected; project/board records and card contents still use the existing shared data model. Tile positions are not currently shared across collaborators.
 
-The **Browse** button opens the project navigation drawer when needed. Creation tools stay on the left. **Arrange** opens the selection, alignment, and distribution panel. The rail’s Project button creates a project on Home; its Board button creates a board inside the current project. Existing cards and projects are preserved by this layout change.
+The **Browse** button opens the project navigation drawer when needed. Creation tools stay on the left. **Arrange** opens the selection, alignment, and distribution panel. The rail’s Project button creates a project on Home; its Note button creates a container note inside the current project. Existing cards and projects are preserved by this layout change.
+
+## Immediate deletion and Undo
+The interface calls both container canvases and content items **notes**. The database retains its original `boards` and `cards` names for compatibility. Projects keep their name.
+
+Single-click to select/highlight. Shift-click or box selection selects several items. Delete or Backspace removes selected items immediately with no confirmation. The left rail has a Delete action for content notes; selected project/container tiles show a Delete action on the canvas. Double-click or Enter opens selected containers. Deleting a container hides its contained notes as well.
+
+Use the left **Undo** button, **Ctrl+Z**, or **Cmd+Z** to reverse up to 30 workspace changes in this session: deletion, saved edits, creation/duplication, movement, resizing, alignment and distribution. Project/note tile movement also supports undo. Text inputs keep their native typing undo. History is in memory and clears on reload; connected-mode data refresh/project switching resets data history so remote changes are not treated as local edits. There is no redo yet. Links/connections and invitation management are outside workspace history.
+
+Migration 002 uses `deleted_at` to hide data while retaining memberships, attachments and child notes. Undo runs in one PostgreSQL transaction and version-checks note edits; conflicts fail instead of overwriting newer changes. Do not physically purge deleted records until any desired recovery period has passed. Hosted Supabase validation is still required; local PostgreSQL-compatible tests validate the migrations and permission/version behavior.

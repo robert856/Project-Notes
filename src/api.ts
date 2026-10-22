@@ -21,8 +21,60 @@ export async function saveCard(card: Card) {
   if (error)
     throw new Error(
       error.message.includes("CONFLICT")
-        ? "This card changed since you opened it. Your edit has not overwritten it. Refresh the board, then reapply your changes."
+        ? "This note changed since you opened it. Your edit has not overwritten it. Refresh the board, then reapply your changes."
         : error.message,
     );
   return data as Card;
+}
+
+import type { WorkspaceSnapshot } from "./undo";
+export async function trashItems(
+  kind: "projects" | "boards" | "cards",
+  ids: string[],
+  versions: Record<string, number> = {},
+) {
+  if (!db) return ids;
+  const { data, error } = await db.rpc("trash_items", {
+    p_kind: kind,
+    p_ids: ids,
+    p_versions: versions,
+  });
+  if (error)
+    throw new Error(
+      error.message.includes("trash_items")
+        ? "Apply Supabase migration 002 to enable reversible deletion. Nothing was deleted."
+        : error.message,
+    );
+  return data as string[];
+}
+export async function restoreWorkspace(
+  before: WorkspaceSnapshot,
+  current: WorkspaceSnapshot,
+): Promise<WorkspaceSnapshot> {
+  if (!db) return before;
+  const { error } = await db.rpc("undo_workspace", {
+    p_before: before,
+    p_after: current,
+  });
+  if (error)
+    throw new Error(
+      error.message.includes("CONFLICT")
+        ? "Undo stopped because someone changed an affected note. Refresh to review their changes."
+        : error.message,
+    );
+  // Only refresh rows known to this history. Concurrently created rows must never
+  // be mistaken for this user's creations by a later undo.
+  const ids = (kind: keyof WorkspaceSnapshot) => [
+    ...new Set([...before[kind], ...current[kind]].map((row) => row.id)),
+  ];
+  const [p, b, c] = await Promise.all([
+    db.from("projects").select("*").in("id", ids("projects")),
+    db.from("boards").select("*").in("id", ids("boards")),
+    db.from("cards").select("*").in("id", ids("cards")),
+  ]);
+  if (p.error || b.error || c.error)
+    throw new Error(
+      "Undo was applied, but refreshing shared data failed. Refresh the page before continuing.",
+    );
+  return { projects: p.data, boards: b.data, cards: c.data };
 }

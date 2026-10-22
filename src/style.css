@@ -1548,3 +1548,41 @@ h1 {
     bottom: 55px;
   }
 }
+.explorer-selection {
+  position: absolute;
+  bottom: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fffffc;
+  border: 1px solid #dce3d3;
+  border-radius: 9px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 18px #34432619;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.explorer-selection > span {
+  color: #8a957c;
+}
+.explorer-selection button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: #f0f3e9;
+}
+.minimal-workspace .react-flow__node-card.selected .canvas-card {
+  outline: 2px solid #738c55;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px #82996714;
+}
+.minimal-workspace .explorer-canvas .react-flow__node.selected .explorer-open {
+  outline: 2px solid #738c55;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 7px #82996714;
+}

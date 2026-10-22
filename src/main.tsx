@@ -16,6 +16,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
+  Undo2,
   Home,
   SlidersHorizontal,
   AlignHorizontalJustifyStart,
@@ -55,7 +56,8 @@ import "@xyflow/react/dist/style.css";
 import "./style.css";
 import Markdown from "react-markdown";
 import { ExplorerCanvas } from "./ExplorerCanvas";
-import { db, saveCard } from "./api";
+import { useWorkspaceUndo } from "./undo";
+import { db, saveCard, trashItems, restoreWorkspace } from "./api";
 import { alignCards, distributeCards, type Alignment } from "./alignment";
 import { droppedUrl, youtubeId, storeLocalFile, readLocalFile } from "./drops";
 import {
@@ -264,6 +266,41 @@ function App() {
   const canEdit = !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
+  const undoHistory = useWorkspaceUndo(
+    { projects, boards, cards },
+    restoreWorkspace,
+    (snapshot) => {
+      setProjects(snapshot.projects);
+      setBoards(snapshot.boards);
+      setCards(snapshot.cards);
+      setEditing(null);
+      setMessage("Undone.");
+    },
+    notify,
+  );
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z" &&
+        !event.shiftKey &&
+        !event.repeat
+      ) {
+        if (
+          (event.target as HTMLElement).closest(
+            'input,textarea,select,[contenteditable="true"]',
+          )
+        )
+          return;
+        event.preventDefault();
+        if (!busy && !deleting && !arranging && !dropping)
+          void undoHistory.undo();
+      }
+    };
+    document.addEventListener("keydown", keyboard);
+    return () => document.removeEventListener("keydown", keyboard);
+  }, [undoHistory]);
+
   // Capture native drops before any canvas/card handlers or browser default navigation.
   useEffect(() => {
     const protectPage = (event: DragEvent) => {
@@ -280,7 +317,7 @@ function App() {
           event.dataTransfer.dropEffect = "none";
         if (event.type === "drop")
           setMessage(
-            "File not added. Drop inside the board canvas, below the toolbars. Your workspace has stayed open.",
+            "File not added. Drop inside the note canvas, below the toolbars. Your workspace has stayed open.",
           );
       }
     };
@@ -335,6 +372,11 @@ function App() {
       notify((b.error || c.error || m.error)!.message);
       return;
     }
+    undoHistory.reset({
+      projects: p.data || [],
+      boards: b.data || [],
+      cards: c.data || [],
+    });
     setBoards(b.data || []);
     setCards(c.data || []);
     setRole(m.data?.role || "viewer");
@@ -422,11 +464,11 @@ function App() {
     event.stopPropagation();
     setDropActive(false);
     if (!canEdit) {
-      notify("You need editor access to add files to this board.");
+      notify("You need editor access to add files to this note.");
       return;
     }
     if (!current || !flow) {
-      notify("Open a board before dropping files.");
+      notify("Open a note before dropping files.");
       return;
     }
     if (dropping) {
@@ -550,6 +592,7 @@ function App() {
     [cards, board, query, canEdit],
   );
   const [arranging, setArranging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const selectedNodes = nodes.filter((n) => n.selected);
   const selectAll = () =>
     setNodes((previous) => previous.map((n) => ({ ...n, selected: true })));
@@ -570,10 +613,20 @@ function App() {
         selectAll();
       }
       if (event.key === "Escape") clearSelection();
+      if (
+        !event.repeat &&
+        (event.key === "Delete" || event.key === "Backspace") &&
+        selectedNodes.length
+      ) {
+        event.preventDefault();
+        void deleteNotes(
+          cards.filter((c) => selectedNodes.some((n) => n.id === c.id)),
+        );
+      }
     };
     document.addEventListener("keydown", keyboard);
     return () => document.removeEventListener("keydown", keyboard);
-  }, [dashboard, editing, modal]);
+  }, [dashboard, editing, modal, nodes, cards, canEdit, deleting, arranging]);
   const savePositions = async (moved: Node[]) => {
     if (!canEdit || arranging) return;
     const changes = moved.flatMap((n) => {
@@ -600,7 +653,7 @@ function App() {
     setCards((previous) => previous.map((c) => saved.get(c.id) || c));
     if (failures.length)
       notify(
-        `${saved.size} of ${changes.length} card positions saved. ${failures[0]} Unsaved cards returned to their previous positions.`,
+        `${saved.size} of ${changes.length} note positions saved. ${failures[0]} Unsaved notes returned to their previous positions.`,
       );
     setArranging(false);
   };
@@ -633,7 +686,7 @@ function App() {
   const add = async (kind: Kind) => {
     if (!canEdit) return;
     if (!current) {
-      notify("Create a board first.");
+      notify("Create a note first.");
       return;
     }
     const c: Card = {
@@ -680,44 +733,67 @@ function App() {
       setDashboard(true);
     }
   };
-  const deleteProject = async () => {
-    const target = projects.find((p) => p.id === project);
-    if (!target || (db && role !== "owner")) return;
-    if (
-      !confirm(
-        `Delete “${target.title}” and all its boards and cards? This cannot be undone.`,
-      )
-    )
-      return;
-    if (db) {
-      const { data, error } = await db
-        .from("projects")
-        .delete()
-        .eq("id", target.id)
-        .select("id");
-      if (error || !data?.length) {
-        notify(
-          error?.message ||
-            "Project was not deleted. Only an owner can delete it.",
-        );
-        return;
+  const deleteProjects = async (ids: string[]) => {
+    if (deleting || !ids.length) return;
+    const targets = projects.filter((p) => ids.includes(p.id));
+    if (!targets.length) return;
+    setDeleting(true);
+    try {
+      let deleted = targets.map((p) => p.id);
+      if (db) deleted = await trashItems("projects", deleted);
+      const removed = new Set(deleted);
+      const boardIds = new Set(
+        boards.filter((b) => removed.has(b.project_id)).map((b) => b.id),
+      );
+      const remaining = projects.filter((p) => !removed.has(p.id));
+      setProjects(remaining);
+      setBoards((previous) =>
+        previous.filter((b) => !removed.has(b.project_id)),
+      );
+      setCards((previous) => previous.filter((c) => !boardIds.has(c.board_id)));
+      if (removed.has(project)) {
+        setProject(remaining[0]?.id || "");
+        setBoard("");
+        setQuery("");
+        setDashboard(true);
+        setEditing(null);
+        setEdges([]);
+        if (db) setRole("viewer");
       }
+      notify(
+        deleted.length === targets.length
+          ? "Project deletion completed."
+          : `${deleted.length} of ${targets.length} projects deleted. Only project owners can delete projects.`,
+      );
+    } catch (error) {
+      notify((error as Error).message);
+    } finally {
+      setDeleting(false);
     }
-    const boardIds = new Set(
-      boards.filter((b) => b.project_id === target.id).map((b) => b.id),
-    );
-    const remaining = projects.filter((p) => p.id !== target.id);
-    setProjects(remaining);
-    setBoards((previous) => previous.filter((b) => b.project_id !== target.id));
-    setCards((previous) => previous.filter((c) => !boardIds.has(c.board_id)));
-    setProject(remaining[0]?.id || "");
-    setBoard("");
-    setQuery("");
-    setDashboard(true);
-    setEditing(null);
-    setEdges([]);
-    if (db) setRole("viewer");
-    notify("Project deleted.");
+  };
+  const deleteProject = () => deleteProjects([project]);
+  const deleteBoards = async (ids: string[]) => {
+    if (!canEdit || deleting || !ids.length) return;
+    setDeleting(true);
+    try {
+      let deleted = ids;
+      if (db) deleted = await trashItems("boards", ids);
+      const removed = new Set(deleted);
+      setBoards((previous) => previous.filter((b) => !removed.has(b.id)));
+      setCards((previous) => previous.filter((c) => !removed.has(c.board_id)));
+      if (removed.has(board)) {
+        setBoard("");
+        setDashboard(true);
+        setEditing(null);
+      }
+      notify(
+        `${deleted.length} of ${ids.length} notes deleted.${deleted.length < ids.length ? " Some notes could not be deleted; check your permissions." : ""}`,
+      );
+    } catch (error) {
+      notify((error as Error).message);
+    } finally {
+      setDeleting(false);
+    }
   };
   const createBoard = async (source?: Board) => {
     setWorkspaceHome(false);
@@ -726,7 +802,7 @@ function App() {
       return;
     }
 
-    const title = source ? source.title + " — copy" : prompt("Board name");
+    const title = source ? source.title + " — copy" : prompt("Note name");
     if (!title?.trim()) return;
     const b: Board = {
       id: crypto.randomUUID(),
@@ -755,7 +831,8 @@ function App() {
         const { error } = await db.from("cards").insert(copies);
         if (error) {
           notify(
-            "Board created, but cards could not be copied: " + error.message,
+            "Note created, but its contents could not be copied: " +
+              error.message,
           );
           return;
         }
@@ -765,19 +842,7 @@ function App() {
     setBoard(b.id);
     setDashboard(false);
   };
-  const removeBoard = async () => {
-    if (!current || !confirm("Delete this board and all its cards?")) return;
-    if (db) {
-      const { error } = await db.from("boards").delete().eq("id", board);
-      if (error) {
-        notify(error.message);
-        return;
-      }
-    }
-    setBoards((v) => v.filter((b) => b.id !== board));
-    setCards((v) => v.filter((c) => c.board_id !== board));
-    setDashboard(true);
-  };
+  const removeBoard = () => deleteBoards([board]);
   const duplicateCard = async (c: Card) => {
     const copy = {
       ...c,
@@ -797,23 +862,38 @@ function App() {
     setCards((v) => [...v, copy]);
     setEditing(null);
   };
-  const deleteCard = async (c: Card) => {
-    if (!confirm("Delete this card?")) return;
-    if (db) {
-      const { data, error } = await db
-        .from("cards")
-        .delete()
-        .eq("id", c.id)
-        .eq("version", c.version)
-        .select("id");
-      if (error || !data?.length) {
-        notify(error?.message || "This card changed. Refresh before deleting.");
-        return;
-      }
+  const deleteNotes = async (targets: Card[]) => {
+    if (!canEdit || deleting || arranging || !targets.length) return;
+    setDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        targets.map(async (c) => {
+          if (db) {
+            const removed = await trashItems("cards", [c.id], {
+              [c.id]: c.version,
+            });
+            if (!removed.includes(c.id))
+              throw new Error(
+                "A note changed or access was denied. Refresh before deleting it.",
+              );
+          }
+          return c.id;
+        }),
+      );
+      const removed = new Set(
+        results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])),
+      );
+      setCards((previous) => previous.filter((c) => !removed.has(c.id)));
+      if (editing && removed.has(editing.id)) setEditing(null);
+      const failed = results.find((r) => r.status === "rejected");
+      notify(
+        `${removed.size} of ${targets.length} notes deleted.${failed?.status === "rejected" ? " " + String(failed.reason instanceof Error ? failed.reason.message : failed.reason) : ""}`,
+      );
+    } finally {
+      setDeleting(false);
     }
-    setCards((v) => v.filter((v) => v.id !== c.id));
-    setEditing(null);
   };
+  const deleteCard = (c: Card) => deleteNotes([c]);
   return (
     <div className="app minimal-workspace">
       <nav className="tool-rail" aria-label="Canvas tools">
@@ -872,15 +952,15 @@ function App() {
         })}
         <button
           className="rail-tool"
-          title={workspaceHome ? "Create project" : "New board"}
-          aria-label={workspaceHome ? "Create project" : "New board"}
+          title={workspaceHome ? "Create project" : "New note"}
+          aria-label={workspaceHome ? "Create project" : "New note"}
           disabled={!workspaceHome && !canEdit}
           onClick={() =>
             workspaceHome ? void newProject() : void createBoard()
           }
         >
           <Folder size={21} strokeWidth={1.5} />
-          <span>{workspaceHome ? "Project" : "Board"}</span>
+          <span>{workspaceHome ? "Project" : "Note"}</span>
         </button>
         <div className="rail-divider" />
         <button
@@ -894,12 +974,47 @@ function App() {
           <SlidersHorizontal size={21} strokeWidth={1.5} />
           <span>Arrange</span>
         </button>
+        {!dashboard && (
+          <button
+            className="rail-tool danger"
+            title="Delete selected notes"
+            aria-label="Delete selected notes"
+            disabled={
+              !canEdit || !selectedNodes.length || deleting || arranging
+            }
+            onClick={() =>
+              void deleteNotes(
+                cards.filter((c) => selectedNodes.some((n) => n.id === c.id)),
+              )
+            }
+          >
+            <Trash2 size={20} strokeWidth={1.5} />
+            <span>Delete</span>
+          </button>
+        )}
+        <button
+          className="rail-tool"
+          title="Undo (Ctrl+Z / ⌘Z)"
+          aria-label="Undo"
+          disabled={
+            !undoHistory.canUndo ||
+            undoHistory.undoing ||
+            deleting ||
+            arranging ||
+            busy ||
+            dropping
+          }
+          onClick={() => void undoHistory.undo()}
+        >
+          <Undo2 size={21} strokeWidth={1.5} />
+          <span>{undoHistory.undoing ? "Undoing…" : "Undo"}</span>
+        </button>
         <button
           className="rail-tool rail-help"
           title="Canvas help"
           onClick={() =>
             notify(
-              "Drag empty canvas to select. Shift-click adds cards. Arrange aligns or distributes your selection. Hold Space to pan. Drop files and links directly onto a board.",
+              "Drag empty canvas to select. Shift-click adds notes. Arrange aligns or distributes your selection. Hold Space to pan. Drop files and links directly onto an open note.",
             )
           }
         >
@@ -991,7 +1106,7 @@ function App() {
                   ))}
                 {canEdit && (
                   <button onClick={() => void createBoard()}>
-                    <Plus size={14} /> New board
+                    <Plus size={14} /> New note
                   </button>
                 )}
               </div>
@@ -1007,7 +1122,7 @@ function App() {
             className="nav-item"
             onClick={() =>
               notify(
-                "Drag cards by their body. Select a card to resize it. Double-click to edit. Use the toolbar to add ideas.",
+                "Drag notes by their body. Select a note to resize it. Double-click to edit. Use the left tools to add ideas.",
               )
             }
           >
@@ -1078,7 +1193,7 @@ function App() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Find an idea…"
-                aria-label="Search boards and cards"
+                aria-label="Search notes"
               />
             </label>
             <span className="save-state">
@@ -1112,7 +1227,7 @@ function App() {
                     ? "Home"
                     : projects.find((p) => p.id === project)?.title ||
                       "Your creative space"
-                  : current?.title || "Start with a board"}
+                  : current?.title || "Start with a note"}
               </h1>
               <span className="private-tag">
                 <Moon size={11} /> PRIVATE
@@ -1148,7 +1263,7 @@ function App() {
                 setModal("invite");
               }}
             >
-              <Users size={15} /> Share board
+              <Users size={15} /> Share project
             </button>
             <button
               className="icon-button"
@@ -1165,7 +1280,7 @@ function App() {
         {!dashboard && (
           <div
             className={`selection-toolbar ${arrangeOpen ? "expanded" : ""}`}
-            aria-label="Card selection and alignment"
+            aria-label="Note selection and alignment"
           >
             <button onClick={selectAll} disabled={!nodes.length}>
               Select all
@@ -1240,7 +1355,10 @@ function App() {
           <ExplorerCanvas
             key={workspaceHome ? "home" : project}
             scope={workspaceHome ? "home" : project}
-            label={workspaceHome ? "Create a project" : "Create a board"}
+            onDelete={workspaceHome ? deleteProjects : deleteBoards}
+            canDelete={workspaceHome || canEdit}
+            recordUndo={undoHistory.recordExternal}
+            label={workspaceHome ? "Create a project" : "Create a note"}
             onCreate={
               workspaceHome
                 ? () => void newProject()
@@ -1263,7 +1381,7 @@ function App() {
                     .map((p) => ({
                       id: p.id,
                       title: p.title,
-                      detail: `${boards.filter((b) => b.project_id === p.id).length} boards`,
+                      detail: `${boards.filter((b) => b.project_id === p.id).length} notes`,
                       kind: "project" as const,
                     }))
                 : boards
@@ -1280,7 +1398,7 @@ function App() {
                     .map((b) => ({
                       id: b.id,
                       title: b.title,
-                      detail: `${cards.filter((c) => c.board_id === b.id).length} cards`,
+                      detail: `${cards.filter((c) => c.board_id === b.id).length} notes`,
                       kind: "board" as const,
                     }))
             }
@@ -1330,7 +1448,7 @@ function App() {
               <div className="drop-overlay" role="status">
                 <Plus size={28} />
                 <strong>
-                  {dropping ? "Adding to your board…" : "Drop it here"}
+                  {dropping ? "Adding your notes…" : "Drop it here"}
                 </strong>
                 <span>Web links, YouTube videos, and files up to 20 MB</span>
               </div>
@@ -1392,7 +1510,7 @@ function App() {
                 <>
                   <button
                     onClick={() => {
-                      const name = prompt("Board title", current.title);
+                      const name = prompt("Note title", current.title);
                       if (!name?.trim()) return;
                       void (async () => {
                         if (db) {
@@ -1451,12 +1569,8 @@ function App() {
           >
             <div className="modal-heading">
               <div>
-                <small>{canEdit ? "MAKE IT YOURS" : "VIEW CARD"}</small>
-                <h2>
-                  {editing.kind === "group"
-                    ? "Idea group"
-                    : "Edit " + editing.kind}
-                </h2>
+                <small>{canEdit ? "MAKE IT YOURS" : "VIEW NOTE"}</small>
+                <h2>{editing.kind === "group" ? "Idea group" : "Edit note"}</h2>
               </div>
               <button
                 type="button"
@@ -1531,7 +1645,7 @@ function App() {
               </label>
             )}
             <label>
-              Card color
+              Note color
               <select
                 disabled={!canEdit}
                 value={editing.color}
@@ -1550,7 +1664,7 @@ function App() {
                   <button
                     type="button"
                     className="icon-button danger"
-                    title="Delete card"
+                    title="Delete note"
                     onClick={() => void deleteCard(editing)}
                   >
                     <Trash2 size={18} />
@@ -1635,7 +1749,7 @@ function App() {
             <p>
               {modal === "auth"
                 ? "Sign in with a secure email link to access your shared projects."
-                : "Invite a collaborator to this project. Permissions apply to every board in the project."}
+                : "Invite a collaborator to this project. Permissions apply to every note in the project."}
             </p>
             <label>
               Email
