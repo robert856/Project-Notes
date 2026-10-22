@@ -1608,6 +1608,32 @@ function App() {
             arrangeOpen={arrangeOpen}
             onArrangeClose={() => setArrangeOpen(false)}
             onError={notify}
+            onMoveBoard={
+              workspaceHome
+                ? async (id, target) => {
+                    const moving = boards.find(
+                      (b) => b.id === id && !b.is_project_canvas,
+                    );
+                    if (!moving || moving.project_id === target) return;
+                    if (db) {
+                      const { error } = await db.rpc("move_board", {
+                        p_board: id,
+                        p_from: moving.project_id,
+                        p_to: target,
+                      });
+                      if (error) throw new Error(error.message);
+                    }
+                    setBoards((previous) =>
+                      previous.map((b) =>
+                        b.id === id ? { ...b, project_id: target } : b,
+                      ),
+                    );
+                    notify(
+                      `Board moved into ${projects.find((p) => p.id === target)?.title || "project"}.`,
+                    );
+                  }
+                : undefined
+            }
             onRename={
               canEdit
                 ? async (id, title) =>

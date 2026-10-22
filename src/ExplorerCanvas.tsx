@@ -138,6 +138,7 @@ export function ExplorerCanvas({
   onArrangeClose,
   onError,
   onRename,
+  onMoveBoard,
 }: {
   items: ExplorerItem[];
   scope: string;
@@ -158,9 +159,11 @@ export function ExplorerCanvas({
   arrangeOpen?: boolean;
   onArrangeClose: () => void;
   onError: (message: string) => void;
+  onMoveBoard?: (boardId: string, projectId: string) => Promise<void>;
   onRename?: (id: string, title: string) => Promise<boolean>;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const openNode = (node: Node) => {
     if (node.type === "tile") onOpen(node.id);
     else (node.data.edit as (card: unknown) => void)(node.data.card);
@@ -347,8 +350,48 @@ export function ExplorerCanvas({
           );
           if (contentChanges.length) onContentChange?.(contentChanges);
         }}
+        onNodeDragStart={(_event, node) => {
+          dragOrigin.current = { ...node.position };
+        }}
         onNodeDragStop={(_event, node, moved) => {
           const movedNodes = moved.length ? moved : [node];
+          const item = items.find((item) => item.id === node.id);
+          if (
+            onMoveBoard &&
+            movedNodes.length === 1 &&
+            item?.kind === "board"
+          ) {
+            const center = {
+              x: node.position.x + (node.measured?.width || 170) / 2,
+              y: node.position.y + 45,
+            };
+            const target = nodes.find(
+              (candidate) =>
+                candidate.id !== node.id &&
+                items.some(
+                  (item) => item.id === candidate.id && item.kind === "project",
+                ) &&
+                center.x >= candidate.position.x &&
+                center.x <=
+                  candidate.position.x + (candidate.measured?.width || 170) &&
+                center.y >= candidate.position.y &&
+                center.y <=
+                  candidate.position.y + (candidate.measured?.height || 140),
+            );
+            if (target) {
+              void onMoveBoard(node.id, target.id).catch((error) => {
+                setNodes((previous) =>
+                  previous.map((n) =>
+                    n.id === node.id
+                      ? { ...n, position: dragOrigin.current || n.position }
+                      : n,
+                  ),
+                );
+                onError((error as Error).message);
+              });
+              return;
+            }
+          }
           const content = movedNodes.filter((n) => n.type !== "tile");
           if (content.length) onContentMove?.(content);
           const tiles = movedNodes.filter((n) => n.type === "tile");

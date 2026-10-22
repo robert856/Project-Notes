@@ -20,6 +20,7 @@ beforeAll(async () => {
     "003_project_canvas.sql",
     "004_project_title_undo.sql",
     "005_home_canvas.sql",
+    "006_move_boards.sql",
   ])
     await pg.exec(
       await readFile(
@@ -27,7 +28,7 @@ beforeAll(async () => {
         "utf8",
       ),
     );
-  await pg.exec(`grant usage on schema public,auth,storage to authenticated;grant select,insert,update,delete on all tables in schema public to authenticated;revoke update on public.cards from authenticated;revoke update on public.projects from authenticated;grant update(title) on public.projects to authenticated;grant select on storage.objects to authenticated;
+  await pg.exec(`grant usage on schema public,auth,storage to authenticated;grant select,insert,update,delete on all tables in schema public to authenticated;revoke all on public.attachment_board_paths from authenticated;revoke update on public.boards from authenticated;grant update(title,description) on public.boards to authenticated;revoke update on public.cards from authenticated;revoke update on public.projects from authenticated;grant update(title) on public.projects to authenticated;grant select on storage.objects to authenticated;
  insert into public.projects(id,title) values('${project}','Test project');insert into public.project_members values('${project}','${owner}','owner');
  insert into public.boards(id,project_id,title) values('${board}','${project}','Test note');
  insert into public.cards(id,board_id,title,kind) values('${card}','${board}','First note','text');
@@ -255,4 +256,66 @@ it("creates separate Home canvases for different users and protects Home ownersh
   await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
     owner,
   ]);
+});
+it("moves boards atomically, transfers private file access, rejects stale moves and viewers, and supports Undo", async () => {
+  const source = "66666666-6666-4666-8666-666666666661",
+    target = "66666666-6666-4666-8666-666666666662",
+    moved = "66666666-6666-4666-8666-666666666663",
+    note = "66666666-6666-4666-8666-666666666664";
+  await pg.exec(`reset role;
+    insert into public.projects(id,title) values('${source}','Source'),('${target}','Target');
+    insert into public.project_members values('${source}','${owner}','owner'),('${target}','${owner}','owner'),('${source}','${other}','editor'),('${target}','${other}','viewer');
+    insert into public.boards(id,project_id,title) values('${moved}','${source}','Moving board');
+    insert into public.cards(id,board_id,title,kind,content) values('${note}','${moved}','File','file','${source}/private.pdf');
+    insert into public.attachments(project_id,card_id,path,name) values('${source}','${note}','${source}/private.pdf','private.pdf');
+    insert into storage.objects(bucket_id,name) values('attachments','${source}/private.pdf');
+    set role authenticated;select set_config('request.jwt.claim.sub','${other}',false);`);
+  await expect(
+    pg.query("select public.move_board($1,$2,$3)", [moved, source, target]),
+  ).rejects.toThrow("edit access");
+  await pg.exec(`select set_config('request.jwt.claim.sub','${owner}',false)`);
+  const before = await snapshot();
+  await pg.query("select public.move_board($1,$2,$3)", [moved, source, target]);
+  const after = await snapshot();
+  expect(
+    (
+      await pg.query<{ project_id: string }>(
+        "select project_id from public.attachments where card_id=$1",
+        [note],
+      )
+    ).rows[0].project_id,
+  ).toBe(target);
+  await expect(
+    pg.query("select public.move_board($1,$2,$3)", [moved, source, target]),
+  ).rejects.toThrow("CONFLICT");
+  await pg.exec(
+    `reset role;delete from public.attachments where card_id='${note}';delete from public.project_members where project_id='${target}' and user_id='${other}';set role authenticated;select set_config('request.jwt.claim.sub','${other}',false);`,
+  );
+  expect(
+    (
+      await pg.query("select * from storage.objects where name=$1", [
+        `${source}/private.pdf`,
+      ])
+    ).rows,
+  ).toHaveLength(0);
+  await pg.exec(`select set_config('request.jwt.claim.sub','${owner}',false)`);
+  expect(
+    (
+      await pg.query("select * from storage.objects where name=$1", [
+        `${source}/private.pdf`,
+      ])
+    ).rows,
+  ).toHaveLength(1);
+  await pg.query("select public.undo_workspace($1,$2)", [
+    JSON.stringify(before),
+    JSON.stringify(after),
+  ]);
+  expect(
+    (
+      await pg.query<{ project_id: string }>(
+        "select project_id from public.boards where id=$1",
+        [moved],
+      )
+    ).rows[0].project_id,
+  ).toBe(source);
 });

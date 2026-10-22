@@ -1288,3 +1288,37 @@ test("canvas stays visually unchanged while a toolbar board is dragged across it
     ),
   ).toBe(false);
 });
+
+test("drops a Home board into a project, supports Undo and persists its new parent", async ({
+  page,
+}) => {
+  await page.goto("/");
+  page.once("dialog", (dialog) => dialog.accept("Move this board"));
+  await page.getByRole("button", { name: "Add board", exact: true }).click();
+  await page.getByTitle("Home", { exact: true }).click();
+  const source = page.getByRole("button", {
+    name: "Select Move this board",
+    exact: true,
+  });
+  const target = page.getByRole("button", {
+    name: "Select True Myth: Addison’s Midnight Walk",
+    exact: true,
+  });
+  const move = async () => {
+    const a = (await source.boundingBox())!,
+      b = (await target.boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 20 });
+    await page.mouse.up();
+    await expect(source).toHaveCount(0);
+  };
+  await move();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(source).toBeVisible();
+  await move();
+  await page.reload();
+  await expect(source).toHaveCount(0);
+  await target.dblclick();
+  await expect(source).toBeVisible();
+});

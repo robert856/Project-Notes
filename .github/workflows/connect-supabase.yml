@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/connect-supabase.yml
       - scripts/setup_supabase.py
+      - supabase/migrations/**
 permissions:
   contents: write
   pages: write

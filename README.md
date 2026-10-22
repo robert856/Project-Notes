@@ -97,3 +97,9 @@ Both **Note** and **Board** tools can be dragged from the left rail. Drop a Note
 Migration 005 supplies a personal Home storage container through `get_home_canvas`, using existing RLS and storage policies. The backing project is excluded from the project tile list. Each signed-in user gets their own Home container; ownership is assigned by the server, not client project edits. Home content and boards persist in browser storage in demo mode, and Supabase when configured. Apply migration 005 after the earlier migrations for connected use; it was applied to the hosted Stillroom project on 2026-10-22.
 
 Dragging onto a canvas is intentionally quiet: no drop-here wording, tinted overlay, dashed border, or drag-triggered layout changes. Releasing a supported item places it on the canvas. Embedded-player hit testing is temporarily disabled invisibly during external drags so players do not swallow the drop.
+
+
+## Move boards into projects
+On Home, drag a board tile onto a project tile and release. The board and its notes move into that project, and its members gain access according to their roles. You need editor or owner access to both locations. A failed or stale move leaves the board in place. Ctrl/Cmd+Z reverses the move within the current undo session.
+
+Migration `006_move_boards.sql` supplies an atomic, permission-checked move and attachment access transfer. Stored file paths remain stable; a private RLS-protected path registry ensures former project members cannot regain file access if attachment metadata is later removed. Direct client changes to board project IDs are revoked. The setup workflow applies new migrations before deploying the frontend.
