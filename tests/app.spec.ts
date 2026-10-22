@@ -644,39 +644,50 @@ test("task insertion previews do not save until release and support exact gaps i
     await add.press("Enter");
   }
   await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
-  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  await page.evaluate(() => {
+    (window as unknown as { nativeTaskDrags: number }).nativeTaskDrags = 0;
+    document.addEventListener("dragstart", () => {
+      (window as unknown as { nativeTaskDrags: number }).nativeTaskDrags++;
+    });
+  });
   const handle = card.getByRole("button", {
     name: "Reorder task 3",
     exact: true,
   });
-  await handle.dispatchEvent("dragstart", { dataTransfer: transfer });
+  const grip = (await handle.boundingBox())!;
   const first = (await card
     .getByRole("textbox", { name: "To-do 1", exact: true })
     .boundingBox())!;
   const second = (await card
     .getByRole("textbox", { name: "To-do 2", exact: true })
     .boundingBox())!;
-  const list = card.getByLabel("To-do list", { exact: true });
   const y = (first.y + first.height + second.y) / 2;
-  await list.dispatchEvent("dragover", {
-    dataTransfer: transfer,
-    clientX: first.x + 20,
-    clientY: y,
-  });
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(first.x + 20, y, { steps: 12 });
   await expect(
     card.getByRole("separator", { name: "Task insertion point" }),
   ).toBeVisible();
   await expect(
-    card.getByRole("textbox", { name: "To-do 1", exact: true }),
-  ).toHaveValue("First");
+    card.getByRole("textbox", { name: "To-do 2", exact: true }),
+  ).toHaveValue("Second");
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { nativeTaskDrags: number }).nativeTaskDrags,
+    ),
+  ).toBe(0);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(
+    card.getByRole("separator", { name: "Task insertion point" }),
+  ).toHaveCount(0);
   await expect(
     card.getByRole("textbox", { name: "To-do 2", exact: true }),
   ).toHaveValue("Second");
-  await list.dispatchEvent("drop", {
-    dataTransfer: transfer,
-    clientX: first.x + 20,
-    clientY: y,
-  });
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(first.x + 20, y, { steps: 12 });
+  await page.mouse.up();
   await expect(
     card.getByRole("textbox", { name: "To-do 2", exact: true }),
   ).toHaveValue("Third");

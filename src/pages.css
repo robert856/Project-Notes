@@ -675,3 +675,18 @@
   background: #f4f7ed;
   border-radius: 3px;
 }
+
+/* Task moves use pointer capture, never the native forbidden-drop cursor. */
+.task-grip {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.task-grip svg {
+  pointer-events: none;
+}
+html.task-pointer-drag,
+html.task-pointer-drag * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}

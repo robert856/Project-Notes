@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { GripVertical, Plus, X } from "lucide-react";
 import type { Page } from "./pages";
 import { reloadPage } from "./pageRepository";
+import { useTaskPointerDrag } from "./useTaskPointerDrag";
 interface Task {
   id: string;
   text: string;
@@ -18,7 +19,6 @@ const parse = (content: string): Task[] =>
     }));
 const serialize = (tasks: Task[]) =>
   tasks.map((task) => `[${task.done ? "x" : " "}] ${task.text}`).join("\n");
-const MIME = "application/x-stillroom-task";
 export function InlineChecklist({
   page,
   editable,
@@ -31,16 +31,13 @@ export function InlineChecklist({
   const [tasks, setTasks] = useState(() => parse(page.content)),
     [newTask, setNewTask] = useState(""),
     [saving, setSaving] = useState(false),
-    [error, setError] = useState(""),
-    [over, setOver] = useState<number>(),
-    [dragging, setDragging] = useState<string>();
+    [error, setError] = useState("");
   const rows = useRef(tasks),
     version = useRef(page.version),
     lastSaved = useRef(serialize(parse(page.content))),
     queue = useRef(Promise.resolve()),
     pending = useRef(0),
     blocked = useRef(false),
-    source = useRef<string | undefined>(undefined),
     newDraft = useRef("");
   const latestPage = useRef(page);
   latestPage.current = page;
@@ -111,51 +108,17 @@ export function InlineChecklist({
     next.splice(to, 0, task);
     persist(next);
   };
-  const insertionIndex = (element: HTMLElement, y: number) => {
-    const elements = [
-      ...element.querySelectorAll<HTMLElement>("[data-task-id]"),
-    ];
-    const index = elements.findIndex((row) => {
-      const box = row.getBoundingClientRect();
-      return y < box.top + box.height / 2;
-    });
-    return index < 0 ? elements.length : index;
-  };
+  const { listRef, over, dragging, handleProps } = useTaskPointerDrag(
+    tasks,
+    !editable || !!error,
+    (id, slot) => {
+      const from = rows.current.findIndex((task) => task.id === id);
+      reorder(id, slot > from ? slot - 1 : slot);
+    },
+  );
   return (
     <div
-      onDragOver={(e) => {
-        if (
-          !editable ||
-          !source.current ||
-          !e.dataTransfer.types.includes(MIME)
-        )
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = "move";
-        const index = insertionIndex(e.currentTarget, e.clientY);
-        const from = rows.current.findIndex((t) => t.id === source.current);
-        setOver(index === from || index === from + 1 ? undefined : index);
-      }}
-      onDragLeave={(e) => {
-        if (
-          !(e.relatedTarget instanceof Node) ||
-          !e.currentTarget.contains(e.relatedTarget)
-        )
-          setOver(undefined);
-      }}
-      onDrop={(e) => {
-        if (!source.current || !e.dataTransfer.types.includes(MIME)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const id = e.dataTransfer.getData(MIME),
-          slot = insertionIndex(e.currentTarget, e.clientY);
-        const from = rows.current.findIndex((t) => t.id === id);
-        if (source.current === id) reorder(id, slot > from ? slot - 1 : slot);
-        source.current = undefined;
-        setOver(undefined);
-        setDragging(undefined);
-      }}
+      ref={listRef}
       className="inline-checklist nodrag nopan nowheel"
       aria-label="To-do list"
       onDoubleClick={(e) => e.stopPropagation()}
@@ -186,30 +149,7 @@ export function InlineChecklist({
             aria-label={`Reorder task ${index + 1}`}
             title="Drag to reorder · Alt+↑ / Alt+↓"
             disabled={!editable || !!error}
-            draggable={editable && !error}
-            onPointerDown={(e) => e.stopPropagation()}
-            onDragStart={(e) => {
-              e.stopPropagation();
-              source.current = task.id;
-              setDragging(task.id);
-              const row =
-                e.currentTarget.closest<HTMLElement>("[data-task-id]");
-              if (row) {
-                const box = row.getBoundingClientRect();
-                e.dataTransfer.setDragImage(
-                  row,
-                  e.clientX - box.left,
-                  e.clientY - box.top,
-                );
-              }
-              e.dataTransfer.setData(MIME, task.id);
-              e.dataTransfer.effectAllowed = "move";
-            }}
-            onDragEnd={() => {
-              source.current = undefined;
-              setOver(undefined);
-              setDragging(undefined);
-            }}
+            {...handleProps(task.id)}
             onKeyDown={(e) => {
               if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
                 e.preventDefault();
