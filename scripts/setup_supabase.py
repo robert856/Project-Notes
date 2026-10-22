@@ -118,5 +118,5 @@ if __name__ == '__main__':
     try:
         setup()
     except SetupError as error:
-        print('Setup stopped: ' + str(error), file=sys.stderr)
+        print('::error::Setup stopped: ' + str(error), file=sys.stderr)
         sys.exit(1)
