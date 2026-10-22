@@ -16,6 +16,14 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
+  AlignHorizontalJustifyStart,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignHorizontalSpaceBetween,
+  AlignVerticalSpaceBetween,
   ArrowUpRight,
   Plus,
   Search,
@@ -186,6 +194,14 @@ function CanvasCard({ data, selected }: NodeProps) {
     </>
   );
 }
+const alignmentIcons = {
+  left: AlignHorizontalJustifyStart,
+  center: AlignHorizontalJustifyCenter,
+  right: AlignHorizontalJustifyEnd,
+  top: AlignVerticalJustifyStart,
+  middle: AlignVerticalJustifyCenter,
+  bottom: AlignVerticalJustifyEnd,
+};
 const nodeTypes = { card: CanvasCard };
 function App() {
   const [user, setUser] = useState<string | null>(null),
@@ -1090,26 +1106,44 @@ function App() {
               <button
                 key={direction}
                 aria-label={`Align ${direction}`}
+                title={`Align ${direction}`}
+                className="arrange-icon"
                 disabled={!canEdit || arranging || selectedNodes.length < 2}
                 onClick={() => alignSelection(direction)}
               >
-                {direction[0].toUpperCase() + direction.slice(1)}
+                {React.createElement(alignmentIcons[direction], {
+                  size: 18,
+                  strokeWidth: 1.7,
+                  "aria-hidden": true,
+                })}
               </button>
             ))}
             <span className="alignment-label">Distribute</span>
             <button
               aria-label="Distribute horizontally"
+              title="Distribute horizontally — equal gaps across"
+              className="arrange-icon"
               disabled={!canEdit || arranging || selectedNodes.length < 3}
               onClick={() => alignSelection("horizontal")}
             >
-              Horizontally
+              <AlignHorizontalSpaceBetween
+                size={18}
+                strokeWidth={1.7}
+                aria-hidden="true"
+              />
             </button>
             <button
               aria-label="Distribute vertically"
+              title="Distribute vertically — equal gaps down"
+              className="arrange-icon"
               disabled={!canEdit || arranging || selectedNodes.length < 3}
               onClick={() => alignSelection("vertical")}
             >
-              Vertically
+              <AlignVerticalSpaceBetween
+                size={18}
+                strokeWidth={1.7}
+                aria-hidden="true"
+              />
             </button>
             <span className="selection-help">
               {arranging

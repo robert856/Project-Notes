@@ -1165,3 +1165,19 @@ h1 {
 .drop-active .drop-overlay {
   pointer-events: auto;
 }
+.selection-toolbar .arrange-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 6px;
+  border-color: transparent;
+  background: #f0f2eb;
+  color: #46513d;
+  border-radius: 5px;
+}
+.selection-toolbar .arrange-icon:disabled {
+  opacity: 0.35;
+}
