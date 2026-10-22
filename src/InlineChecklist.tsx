@@ -32,7 +32,8 @@ export function InlineChecklist({
     [newTask, setNewTask] = useState(""),
     [saving, setSaving] = useState(false),
     [error, setError] = useState(""),
-    [over, setOver] = useState<string>();
+    [over, setOver] = useState<number>(),
+    [dragging, setDragging] = useState<string>();
   const rows = useRef(tasks),
     version = useRef(page.version),
     lastSaved = useRef(serialize(parse(page.content))),
@@ -101,18 +102,60 @@ export function InlineChecklist({
     persist([...rows.current, { id: crypto.randomUUID(), text, done: false }]);
     setNewTask("");
   };
-  const reorder = (id: string, target: string) => {
-    if (!editable || id === target || blocked.current) return;
+  const reorder = (id: string, to: number) => {
+    if (!editable || blocked.current) return;
     const next = [...rows.current],
-      from = next.findIndex((t) => t.id === id),
-      to = next.findIndex((t) => t.id === target);
-    if (from < 0 || to < 0) return;
+      from = next.findIndex((t) => t.id === id);
+    if (from < 0 || to < 0 || to >= next.length || from === to) return;
     const [task] = next.splice(from, 1);
     next.splice(to, 0, task);
     persist(next);
   };
+  const insertionIndex = (element: HTMLElement, y: number) => {
+    const elements = [
+      ...element.querySelectorAll<HTMLElement>("[data-task-id]"),
+    ];
+    const index = elements.findIndex((row) => {
+      const box = row.getBoundingClientRect();
+      return y < box.top + box.height / 2;
+    });
+    return index < 0 ? elements.length : index;
+  };
   return (
     <div
+      onDragOver={(e) => {
+        if (
+          !editable ||
+          !source.current ||
+          !e.dataTransfer.types.includes(MIME)
+        )
+          return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        const index = insertionIndex(e.currentTarget, e.clientY);
+        const from = rows.current.findIndex((t) => t.id === source.current);
+        setOver(index === from || index === from + 1 ? undefined : index);
+      }}
+      onDragLeave={(e) => {
+        if (
+          !(e.relatedTarget instanceof Node) ||
+          !e.currentTarget.contains(e.relatedTarget)
+        )
+          setOver(undefined);
+      }}
+      onDrop={(e) => {
+        if (!source.current || !e.dataTransfer.types.includes(MIME)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const id = e.dataTransfer.getData(MIME),
+          slot = insertionIndex(e.currentTarget, e.clientY);
+        const from = rows.current.findIndex((t) => t.id === id);
+        if (source.current === id) reorder(id, slot > from ? slot - 1 : slot);
+        source.current = undefined;
+        setOver(undefined);
+        setDragging(undefined);
+      }}
       className="inline-checklist nodrag nopan nowheel"
       aria-label="To-do list"
       onDoubleClick={(e) => e.stopPropagation()}
@@ -120,28 +163,23 @@ export function InlineChecklist({
       {tasks.map((task, index) => (
         <div
           key={task.id}
-          className={`inline-task ${over === task.id ? "task-landing" : ""}`}
-          onDragOver={(e) => {
-            if (!editable || !e.dataTransfer.types.includes(MIME)) return;
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = "move";
-            setOver(task.id);
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node))
-              setOver(undefined);
-          }}
-          onDrop={(e) => {
-            if (!e.dataTransfer.types.includes(MIME)) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const id = e.dataTransfer.getData(MIME);
-            if (source.current === id) reorder(id, task.id);
-            source.current = undefined;
-            setOver(undefined);
-          }}
+          data-task-id={task.id}
+          className={`inline-task ${dragging === task.id ? "task-dragging" : ""}`}
         >
+          {over === index && (
+            <span
+              role="separator"
+              aria-label="Task insertion point"
+              className="task-insertion task-insertion-before"
+            />
+          )}
+          {index === tasks.length - 1 && over === tasks.length && (
+            <span
+              role="separator"
+              aria-label="Task insertion point"
+              className="task-insertion task-insertion-after"
+            />
+          )}
           <button
             className="task-grip"
             type="button"
@@ -153,19 +191,30 @@ export function InlineChecklist({
             onDragStart={(e) => {
               e.stopPropagation();
               source.current = task.id;
+              setDragging(task.id);
+              const row =
+                e.currentTarget.closest<HTMLElement>("[data-task-id]");
+              if (row) {
+                const box = row.getBoundingClientRect();
+                e.dataTransfer.setDragImage(
+                  row,
+                  e.clientX - box.left,
+                  e.clientY - box.top,
+                );
+              }
               e.dataTransfer.setData(MIME, task.id);
               e.dataTransfer.effectAllowed = "move";
             }}
             onDragEnd={() => {
               source.current = undefined;
               setOver(undefined);
+              setDragging(undefined);
             }}
             onKeyDown={(e) => {
               if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
                 e.preventDefault();
                 e.stopPropagation();
-                const target = tasks[index + (e.key === "ArrowUp" ? -1 : 1)];
-                if (target) reorder(task.id, target.id);
+                reorder(task.id, index + (e.key === "ArrowUp" ? -1 : 1));
               }
             }}
           >

@@ -617,9 +617,27 @@
 .inline-task:focus-within .task-remove {
   opacity: 1;
 }
-.task-landing {
-  background: #e8efdf;
-  box-shadow: inset 0 0 0 1px #c3d1b4;
+.inline-task {
+  position: relative;
+}
+.task-dragging {
+  opacity: 0.4;
+}
+.task-insertion {
+  position: absolute;
+  left: 18px;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: #718461;
+  pointer-events: none;
+  z-index: 1;
+}
+.task-insertion-before {
+  top: -3px;
+}
+.task-insertion-after {
+  bottom: -3px;
 }
 .task-add {
   color: #a1aa97;

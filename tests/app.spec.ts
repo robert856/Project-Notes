@@ -535,7 +535,9 @@ test("edits to-dos inline, reorders them with drag handles, preserves completion
   );
   await card
     .getByRole("button", { name: "Reorder task 3", exact: true })
-    .dragTo(card.getByRole("textbox", { name: "To-do 1", exact: true }));
+    .dragTo(card.getByRole("textbox", { name: "To-do 1", exact: true }), {
+      targetPosition: { x: 30, y: 2 },
+    });
   await expect(
     card.getByRole("textbox", { name: "To-do 1", exact: true }),
   ).toHaveValue("Third");
@@ -628,4 +630,77 @@ test("keeps an inline task draft when another browser changes the page", async (
     .getByRole("button", { name: "Reload saved tasks", exact: true })
     .click();
   await expect(task).toHaveValue("Someone else's edit");
+});
+
+test("task insertion previews do not save until release and support exact gaps in either direction", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+  const card = node(page, "Untitled page"),
+    add = card.getByRole("textbox", { name: "New to-do", exact: true });
+  for (const text of ["First", "Second", "Third"]) {
+    await add.fill(text);
+    await add.press("Enter");
+  }
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  const handle = card.getByRole("button", {
+    name: "Reorder task 3",
+    exact: true,
+  });
+  await handle.dispatchEvent("dragstart", { dataTransfer: transfer });
+  const first = (await card
+    .getByRole("textbox", { name: "To-do 1", exact: true })
+    .boundingBox())!;
+  const second = (await card
+    .getByRole("textbox", { name: "To-do 2", exact: true })
+    .boundingBox())!;
+  const list = card.getByLabel("To-do list", { exact: true });
+  const y = (first.y + first.height + second.y) / 2;
+  await list.dispatchEvent("dragover", {
+    dataTransfer: transfer,
+    clientX: first.x + 20,
+    clientY: y,
+  });
+  await expect(
+    card.getByRole("separator", { name: "Task insertion point" }),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("textbox", { name: "To-do 1", exact: true }),
+  ).toHaveValue("First");
+  await expect(
+    card.getByRole("textbox", { name: "To-do 2", exact: true }),
+  ).toHaveValue("Second");
+  await list.dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: first.x + 20,
+    clientY: y,
+  });
+  await expect(
+    card.getByRole("textbox", { name: "To-do 2", exact: true }),
+  ).toHaveValue("Third");
+  await expect(
+    card.getByRole("textbox", { name: "To-do 3", exact: true }),
+  ).toHaveValue("Second");
+  await expect(
+    card.getByRole("separator", { name: "Task insertion point" }),
+  ).toHaveCount(0);
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  await card
+    .getByRole("button", { name: "Reorder task 1", exact: true })
+    .dragTo(card.getByRole("textbox", { name: "To-do 3", exact: true }), {
+      targetPosition: { x: 30, y: 20 },
+    });
+  await expect(
+    card.getByRole("textbox", { name: "To-do 1", exact: true }),
+  ).toHaveValue("Third");
+  await expect(
+    card.getByRole("textbox", { name: "To-do 3", exact: true }),
+  ).toHaveValue("First");
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(
+    card.getByRole("textbox", { name: "To-do 3", exact: true }),
+  ).toHaveValue("First");
 });
