@@ -38,13 +38,13 @@ def management(path, method="GET", payload=None):
         # Database requests contain only repository SQL and schema metadata.
         # Include a sanitized SQL/validation reason for diagnosis; auth/key bodies stay private.
         detail = ''
-        if path.startswith('/database/'):
+        if path.startswith('/database/') or error.code == 403:
             try:
                 body = json.loads(error.read())
                 message = str(body.get('message') or body.get('error') or body.get('errors') or '')
                 message = re.sub(r'(sbp_|sb_secret_|sb_publishable_)[A-Za-z0-9_-]+', '[redacted]', message)
                 message = re.sub(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', '[redacted]', message)
-                detail = ' Database detail: ' + message[:1600]
+                detail = ' Service detail: ' + message[:1600]
             except (ValueError, AttributeError):
                 pass
         raise SetupError(f"Supabase {method} {path.split('?')[0]} returned HTTP {error.code}. Check token permissions and the project reference." + detail) from None
@@ -102,11 +102,17 @@ def setup():
         management('/database/migrations', 'POST', {'name': name, 'query': file.read_text()})
         print(f'Applied: {file.name}')
     current = management('/config/auth')
-    management('/config/auth', 'PATCH', auth_settings(current))
-    verified = management('/config/auth')
-    if verified.get('site_url') != SITE_URL or not verified.get('external_email_enabled') or verified.get('mailer_autoconfirm') is not False:
-        raise SetupError('Email authentication settings did not verify.')
-    print('Verified email sign-in, email verification and GitHub Pages redirect URL.')
+    auth_ready = False
+    try:
+        management('/config/auth', 'PATCH', auth_settings(current))
+        current = management('/config/auth')
+        auth_ready = current.get('site_url') == SITE_URL and current.get('external_email_enabled') and current.get('mailer_autoconfirm') is False
+        if not auth_ready:
+            raise SetupError('Email authentication settings did not verify.')
+        print('Verified email sign-in, email verification and GitHub Pages redirect URL.')
+    except SetupError as error:
+        print('::warning::Email configuration needs attention: ' + str(error), flush=True)
+    verified = current
     key = os.environ.get('SUPABASE_PUBLISHABLE_KEY') or select_public_key(management('/api-keys?reveal=false'))
     if not is_public_key(key):
         raise SetupError('Refusing to publish a non-public API key.')
@@ -121,7 +127,7 @@ def setup():
     (ROOT / 'src/supabase-config.json').write_text(json.dumps({'url': f'https://{PROJECT_REF}.supabase.co', 'publishableKey': key}, indent=2) + '\n')
     print('Verified RLS on six tables and private attachment storage. Wrote public frontend configuration.')
     custom_smtp = bool(verified.get('smtp_host'))
-    summary = ['## Stillroom Supabase setup', '', '- Migrations applied/verified.', '- Email sign-in and production redirect configured.', '- RLS and private storage verified.', '- Public client configuration generated.', '', '**Email delivery:** ' + ('Custom SMTP is configured; delivery still needs an actual sign-in test.' if custom_smtp else 'Supabase built-in sender only. Sign-in emails are restricted to project-team addresses; inviting other people requires custom SMTP.'), '', 'Browser-local work remains in localStorage/IndexedDB; it has not been uploaded automatically.']
+    summary = ['## Stillroom Supabase setup', '', '- Migrations applied/verified.', ('- Email sign-in and production redirect configured.' if auth_ready else '- BLOCKED: token cannot configure authentication. Set production Site URL and redirect in Authentication URL configuration.'), '- RLS and private storage verified.', '- Public client configuration generated.', '', '**Email delivery:** ' + ('Custom SMTP is configured; delivery still needs an actual sign-in test.' if custom_smtp else 'Supabase built-in sender only. Sign-in emails are restricted to project-team addresses; inviting other people requires custom SMTP.'), '', 'Browser-local work remains in localStorage/IndexedDB; it has not been uploaded automatically.']
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
             output.write('\n'.join(summary)+'\n')
