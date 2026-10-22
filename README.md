@@ -1,105 +1,70 @@
 # Stillroom
-A light, spacious visual planning workspace built with React, TypeScript, Vite and React Flow. The initial local example is **True Myth: Addison’s Midnight Walk**.
 
-## Run locally
+A minimal visual workspace built with React, TypeScript, Vite, React Flow and Supabase. **Everything is a page. Pages can contain content and more pages at any depth.** The Home canvas contains your top-level pages. Text, images, links, checklists and files are content formats of a page, not separate hierarchy levels.
+
+## Use pages
+
+- Click **New page** or drag **Page** from the left toolbar onto the canvas. Click its title to rename it. Open it with its arrow or a double-click to see its content and nested pages.
+- Use the text, image, link, checklist and private-file shortcuts to create pages with those content formats. Every format can contain child pages.
+- Drag a page onto another page to nest it. The destination gets a subtle outline. **Only releasing the mouse commits the move.** Dragging away removes the highlight and leaves the page on the current canvas.
+- Drag onto a breadcrumb at the top to move a page to that ancestor. Drop onto **Home** to make it top-level. Use **Move** for a searchable destination picker across other branches. Self/descendant destinations are excluded, and the database prevents cycles even for concurrent moves.
+- Single-click selects. Shift-click or drag empty canvas to select multiple pages. **Arrange** aligns or distributes them. Drag or resize selected pages; positions and sizes are saved, including top-level pages.
+- **Delete/Backspace deletes immediately**, without confirmation. Deleting a page hides all its descendants. **Ctrl+Z / Cmd+Z** or **Undo** restores it. Up to 30 operations are retained in the current session; reload/sign-out clears history. Text inputs retain native text undo. There is no redo.
+- Duplicate copies a page and its complete subtree. Search covers titles and content at every accessible level; opening a result shows its full breadcrumb trail. Each fresh visit starts on Home.
+- Drop URLs, YouTube links and computer files directly onto a canvas. YouTube pages show the standard thumbnail. Files are limited to 20 MiB. Supported private image attachments show a preview. Link metadata is not fetched from arbitrary sites.
+
+## Development
+
 Use Node 24 and npm:
 
 ```sh
 npm ci
-npm run dev
+VITE_LOCAL_DEMO=true npm run dev
 npm test
+npx playwright test
 npm run build
 ```
-When neither environment variables nor the public `src/supabase-config.json` connection are present, the app runs as a **local demo**. Set `VITE_LOCAL_DEMO=true` to force demo mode for development and browser tests. Cards, boards and projects are stored in this browser’s localStorage. This is not shared data or an authenticated workspace. Clearing browser storage removes demo edits. Connections are session-only. Dropped files are kept in this browser’s IndexedDB, not on a shared server. Clearing site data removes those files. No account is needed for the demo.
 
-## Connect Supabase
-1. Create a Supabase project in your own account. In the SQL editor run `supabase/migrations/001_initial.sql` then `002_reversible_delete.sql`, `003_project_canvas.sql`, `004_project_title_undo.sql`, and `005_home_canvas.sql` in order, or apply them with the Supabase CLI. Existing installations must apply migration 002 before using deletion/undo. Do not run it against an existing unrelated schema.
-2. Copy `.env.example` to `.env.local`. Set `VITE_SUPABASE_URL` and the public anon/publishable client key from the project API settings. Never use a service-role or secret key. Vite variables are embedded in the public bundle.
-3. In Authentication → URL configuration, set Site URL to your production repository URL, for example `https://robert856.github.io/Project-Notes/`. Add that exact URL and `http://localhost:5173/` to the permitted redirect URLs. Enable email authentication and configure production SMTP for reliable magic-link delivery. Keep email verification enabled.
-4. Restart Vite. Use the sign-in dialog to request a magic link. Once signed in, use the + beside Projects to create your first project, then create boards. Use **Import browser projects** after signing in to copy local projects, notes, and private files into your account. The import is resumable and preserves browser originals.
-5. The migration creates a private `attachments` bucket with a 20 MiB limit. File paths are scoped to project IDs; downloads use 60-second signed URLs. Public image URL cards are a separate option: their external hosts receive normal browser requests.
-6. Owners can create invitations with owner, editor, or viewer roles. Invitation creation records an email in the database; it does **not** send an invitation email. Share the application URL separately. The collaborator signs in with the matching verified email, and the app claims the invitation. Existing members retain their current role; this MVP does not provide member removal or role changes.
+`VITE_LOCAL_DEMO=true` explicitly selects browser-local mode, even when public Supabase settings are present. Pages use `stillroom-pages:v1` in localStorage; files use IndexedDB `stillroom-files`. Clearing site data deletes local work and files. Demo data is not shared or authenticated.
 
-## Sharing and security
-All six application tables have RLS enabled. Project membership controls board, card, attachment and invite access. Only owners manage invitations. Editors can change boards and cards; viewers have read access. Initial project ownership is assigned atomically by `create_project`. Invite claims use `auth.users` verified email rather than user-editable profile metadata. Storage policies independently check project membership.
+The first local visit copies the older projects/boards/cards into nested pages without changing the originals. Existing positions and file keys are retained. An explicit **Import browser pages** action copies browser pages and files into a signed-in account. Imports keep their ID mapping so an interrupted import can resume without duplicating completed pages; originals remain intact.
 
-Card updates go exclusively through `save_card`, which checks edit permission and atomically compares the expected version, increments it and returns the saved row. Direct client UPDATE privileges on cards are revoked. A stale write fails with a clear conflict warning and preserves the editor text. Close the editor and refresh the browser to load the current version before reconciling manually. Deletion also includes the expected version. Board renames do not currently have version checks. Concurrent requests on the same card may yield a conflict; the app never automatically forces an overwrite.
+Code is separated into the page model (`pages.ts`), persistence (`pageRepository.ts`), canvas/cards (`PageCanvas.tsx`), content editor (`PageEditor.tsx`), and application/navigation (`PagesApp.tsx`). The former project/board helpers and migrations remain as compatibility code and database backups; the active interface uses pages exclusively.
 
-Data model: projects → boards → cards; project_members joins authenticated users to projects; project_invites joins verified emails to projects; attachments belong to a project and a card. No realtime subscriptions are used. Refresh loads the latest saved data.
+## Supabase setup
+
+1. Create a Supabase project with the Data API enabled. Apply **all SQL migrations in order**, `001_initial.sql` through `007_nested_pages.sql`. Never run them against an unrelated schema. Migration 007 copies active legacy projects, boards and notes into `public.pages`, preserving their UUIDs and content. Original tables are retained as a backup; legacy mutation endpoints are disabled so cached clients fail visibly rather than writing to the old hierarchy. Run the conversion only once through the migration system.
+2. Supply `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local`, or use the generated public `src/supabase-config.json`. Only an anon/publishable client key belongs here. **Never put a service-role key or Supabase management token into Vite variables or client code.**
+3. Enable email authentication and keep email verification enabled. In Authentication → URL Configuration, set Site URL and an allowed redirect URL to `https://robert856.github.io/Project-Notes/`. Add your local development URL separately if needed.
+4. Configure custom SMTP before inviting external testers. Supabase's default sender restricts sign-in emails to project-team addresses. A first email-link sign-in creates a user's account. Every collaborator should use their own email and session.
+5. Sign in, create a page, open it, create child pages, refresh, and test a private file download. Verify the email link returns to the deployed site.
+
+The **Connect Supabase and deploy** GitHub Actions workflow can apply pending migrations using the repository secret `SUPABASE_ACCESS_TOKEN`, then verify RLS/private storage and deploy. The scoped token needs database/migration writes and API-key read access. Configuring authentication through the management API also requires `auth_config_write` and `project_admin_write`; when those are absent, set the dashboard URLs manually. The script preserves existing SMTP credentials and writes only the public frontend URL/key. Do not paste management tokens into chat.
+
+## Sharing and permissions
+
+New top-level pages start their own sharing group. Child pages inherit that group's **owner/editor/viewer** access. Only owners invite people. Editors create, edit, nest, move and delete pages; viewers read. The internal `projects` and `project_members` tables retain the sharing groups to preserve existing memberships and invitations.
+
+Moving a page into another page transfers its **entire subtree** to the destination's sharing group in one transaction. You need edit permission in both groups. Moving to Home retains the current sharing group; it does not silently make shared pages private. Sharing changes apply to every page in the group, including pages later moved to Home. A newly duplicated top-level subtree starts its own owner-controlled group.
+
+An invitation records the recipient's email; it does **not** send an invitation email. Send the Stillroom address separately. The recipient signs in with that verified email and refreshes to claim access. Existing members retain their current role. Member removal and role changes are not exposed in the MVP.
+
+## Database and safety
+
+`pages.parent_id` points to another page or is null for a top-level page. `pages.project_id` points to its inherited sharing group. `kind` controls content presentation only. RLS is enabled on all nine application/compatibility tables, including `pages`, `page_files` and the internal file-path registry. Clients have SELECT access to pages through RLS; changes go through permission-checked database functions.
+
+- Creation, subtree moves/deletion, batch edits, duplication and Undo run transactionally. Hierarchy mutations share a transaction lock, preventing simultaneous moves from creating cycles.
+- Every page has a version. Saves and moves compare it atomically. A stale edit fails with a visible warning and does not overwrite someone else's work. The content editor keeps the unsaved draft for reconciliation. Refresh to load saved changes. No real-time synchronization is used.
+- Undo checks the versions of all affected pages and fails if another user changed them. It also refuses to Undo creation over newly added children. Multi-page saves fail atomically.
+- Files live in the private `attachments` bucket. `page_files` binds private paths to pages; storage access follows their current sharing group after subtree moves. File-path ownership is assigned by a checked upload function, not arbitrary client input. Duplication safely retains authorized file references. Signed download URLs expire after 60 seconds; an already-issued URL may remain usable until expiry after a move.
+- Deletion is soft so Undo can restore content and files. No automatic physical purge is performed; design a retention policy before permanently removing old rows/blobs.
+
+Tests cover local conversion, nesting/cycles, inherited access, stale versions, subtree moves and private-file access, duplication and Undo. Browser tests cover page creation/editing, breadcrumb hover/release/cancel, cross-branch moves, deletion/Undo, files/URLs, alignment, resizing, search and responsive navigation. Signed-in email delivery and full multi-user acceptance testing still require actual accounts and a configured email provider.
 
 ## GitHub Pages
-The frontend is static; **GitHub Pages hosts the frontend while Supabase stores shared data, authenticates users, and serves private files**.
 
-1. Commit and push to `main` in `robert856/Project-Notes`.
-2. In GitHub Settings → Pages choose **GitHub Actions** as the source.
-3. Add repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. These are public client configuration, not service credentials. The committed `src/supabase-config.json` supplies the production public connection if these variables are unset.
-4. The included workflow installs the lockfile, tests, builds, and deploys `dist`. Vite uses `base: './'`, generating relative asset paths suitable for `/Project-Notes/` and custom domains. The app does not require server-side route rewrites.
-5. Verify the deployed URL and sign-in redirect after the workflow succeeds.
+**GitHub Pages hosts the frontend. Supabase authenticates users and stores shared pages and private files.**
 
-Hosted setup on 2026-10-22: all five migrations applied; RLS enabled on six application tables and private attachment bucket verified; connected frontend deployed successfully. Authentication configuration is blocked: the scoped management token lacks `project_admin_write`, which Supabase requires in addition to `auth_config_write`. Production email sign-in and two-user sharing still require verification.
+Choose **GitHub Actions** under repository Settings → Pages. Push to `main` to build and deploy; the Vite relative base supports `/Project-Notes/`. Repository variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` override the committed public client settings. Migration/setup commits marked `[connect-supabase]` use the setup workflow so schema changes complete before the new frontend deploys.
 
-The **Connect Supabase and deploy** workflow uses the repository secret `SUPABASE_ACCESS_TOKEN` to apply missing migrations, verify RLS/private storage, configure authentication when authorized, and commit only the public frontend URL/publishable key. Management/service credentials never enter the client bundle. Supabase’s default email sender restricts delivery to project-team addresses; configure custom SMTP before inviting other people.
-
-## Current scope
-Movable and resizable cards, Markdown notes (raw HTML disabled), external images, links, checklists, private file uploads, board creation/rename/duplication/deletion, card duplication/deletion, project creation, role-scoped collaboration, and title/content search. Mobile navigation and canvas pan/zoom are supported; desktop is the primary experience.
-
-Group cards are visual headings, not parent containers; move related cards independently. Connections are intentionally session-only and are labeled as such when added. Rich text uses Markdown editing rather than a WYSIWYG toolbar. Image cards use external URLs; use file cards for private image attachments. Deletion hides records but retains their data and stored blobs for authorized undo; a separate retention/purge policy is needed for permanent cleanup. No realtime, chat or payments.
-
-Before production, execute two-user acceptance checks against your own Supabase project: outsider cannot select any project data or download files; viewer cannot mutate; editor can edit; only owner can invite; two browser sessions editing version 1 cause the second save to fail without replacing the first. Test private attachment download and auth redirects on the actual Pages URL. Local tests cannot establish those account-specific guarantees.
-
-## Drag content directly onto a board
-Drag a web link (including a YouTube video link) or files from your computer onto the canvas. New cards appear at the drop position, accounting for canvas zoom and pan. Multiple files create separate cards. YouTube watch, short, live, and share links create a video embed using youtube-nocookie.com; a normal link remains available if embedding is restricted by the video owner or browser. Drag the video title, thumbnail link, or browser address link rather than the playing video surface, which may not expose a URL to other sites.
-
-Files have a 20 MiB limit per file. In demo mode they persist in this browser’s IndexedDB and can be downloaded from their file cards; they are not shared or uploaded. In connected mode files use the private Supabase bucket and project-scoped attachment records. Viewers cannot add cards through drops. No external URL metadata scraping is performed.
-
-## Select, move, and align cards
-Drag across empty canvas with the left mouse button to box-select cards (touching a card is enough). Shift-click, Ctrl-click, or Cmd-click toggles individual cards into the selection. Use **Select all** or Ctrl/Cmd+A outside text inputs to select the currently visible cards; **Clear** or Escape clears selection. Search filters what Select all includes.
-
-Drag a selected card to move the selected set together. The alignment bar offers Left, Center, Right, Top, Middle, and Bottom for two or more selected cards. It aligns their edges or centers against the selection’s bounding rectangle, accounting for different card sizes. Aligning can overlap cards; it does not distribute spacing. Pan using the middle/right mouse button or touch gestures, or hold Space while dragging. Positions are saved with each card’s version check; a partial save reports how many positions succeeded and restores unsaved cards to their prior positions. Viewers can select but cannot move or align.
-
-### Distribute and delete projects
-Select at least three cards, then choose **Distribute → Horizontally** (across) or **Vertically** (down). Equal gaps use the cards’ actual dimensions and preserve their spatial order. If the selection is too crowded, distribution expands it with 24px gaps instead of retaining overlaps. Positions use the same version-checked saves as alignment.
-
-Click a project or note once to select it, then press Delete/Backspace or click its selection Delete button. Deletion is immediate, without confirmation. Double-click or press Enter to open a selected project/note. Only owners can delete shared projects; editors can delete notes. RLS and the reversible deletion RPC enforce permissions.
-
-## Canvas navigation and minimal tools
-Use the small **Home** mark at the top of the left rail for the project canvas. Double-click project tiles to open their notes; double-click a container note to open the notes inside. Tiles can be freely dragged. Their layout is personal to this browser (`stillroom-layout:*` in localStorage), including when Supabase is connected; project/board records and card contents still use the existing shared data model. Tile positions are not currently shared across collaborators.
-
-The **Browse** button opens the project navigation drawer when needed. Creation tools stay on the left. **Arrange** opens the selection, alignment, and distribution panel. The rail’s Project button creates a project on Home; its Note button creates a container note inside the current project. Existing cards and projects are preserved by this layout change.
-
-## Immediate deletion and Undo
-The interface calls both container canvases and content items **notes**. The database retains its original `boards` and `cards` names for compatibility. Projects keep their name.
-
-Single-click to select/highlight. Shift-click or box selection selects several items. Delete or Backspace removes selected items immediately with no confirmation. The left rail has a Delete action for content notes; selected project/container tiles show a Delete action on the canvas. Double-click or Enter opens selected containers. Deleting a container hides its contained notes as well.
-
-Use the left **Undo** button, **Ctrl+Z**, or **Cmd+Z** to reverse up to 30 workspace changes in this session: deletion, saved edits, creation/duplication, movement, resizing, alignment and distribution. Project/note tile movement also supports undo. Text inputs keep their native typing undo. History is in memory and clears on reload; connected-mode data refresh/project switching resets data history so remote changes are not treated as local edits. There is no redo yet. Links/connections and invitation management are outside workspace history.
-
-Migration 002 uses `deleted_at` to hide data while retaining memberships, attachments and child notes. Undo runs in one PostgreSQL transaction and version-checks note edits; conflicts fail instead of overwriting newer changes. Do not physically purge deleted records until any desired recovery period has passed. Hosted Supabase validation is still required; local PostgreSQL-compatible tests validate the migrations and permission/version behavior.
-
-## Direct drops onto project canvases
-The project canvas (where its container-note tiles appear) also accepts dragged web links, YouTube URLs, and local files. Notes can be created there using the left rail without first opening a container note. Dropped content renders alongside the tiles and supports editing, dragging, resizing, deletion and Undo. Existing open-note drops keep working. Home also accepts direct content drops and toolbar-created boards/notes (migration 005 in connected mode).
-
-Migration 003 adds a hidden backing container per project (`boards.is_project_canvas`) with an authorized, idempotent `get_project_canvas` function. It reuses the existing project membership, note version checking, storage, and Undo policies. Existing connected installations must apply migrations 002 and 003; the hosted Stillroom project has these migrations applied. Local demo mode needs no configuration.
-
-Alignment and distribution are available through **Arrange** on Home project tiles, project note tiles, mixed tile/content selections, and opened content notes. Align requires at least two selected items; distribute requires three. Tile positions remain personal browser layout, while shared content-note positions use version-checked database saves.
-
-The Arrange panel dismisses after applying an alignment/distribution, clicking outside, pressing Escape, clearing the selection, navigating to another canvas, or switching away from the browser tab/window. Use Arrange again for another operation; selection stays available after an action.
-
-Drag the left **Note** tool (or another content tool) onto a project/opened-note canvas to create an item at the exact drop location, including when zoomed or panned. The editor opens for the new item. Clicking a tool still works. On the project canvas, click the text beneath a container note's icon to rename it inline: Enter or clicking elsewhere saves, Escape cancels. Renames are permission-checked; connected saves compare the previously loaded title to detect concurrent changes. Undo also reverses renames.
-
-Stillroom starts on **Home** on every fresh load or refresh, including first use. Opening a project or note does not change this startup behavior. Saved projects, notes, attachments and personal tile layouts remain available.
-
-On Home, click a project title beneath its icon to rename it inline. Enter or clicking elsewhere saves; Escape cancels. Shared project renames are owner-only and compare the previously loaded title to detect concurrent changes. Migration 004 adds conflict-safe Undo for project titles; demo mode needs no migration.
-
-## Drag tools onto Home or project canvases
-Both **Note** and **Board** tools can be dragged from the left rail. Drop a Note to create content at that exact position; its editor opens. Drop a Board to create an “Untitled board” tile without a naming dialog. Click the tile title to rename it later. Both work directly on Home and on project canvases. Dropping a Board while inside a content canvas creates it on the enclosing project canvas.
-
-Migration 005 supplies a personal Home storage container through `get_home_canvas`, using existing RLS and storage policies. The backing project is excluded from the project tile list. Each signed-in user gets their own Home container; ownership is assigned by the server, not client project edits. Home content and boards persist in browser storage in demo mode, and Supabase when configured. Apply migration 005 after the earlier migrations for connected use; it was applied to the hosted Stillroom project on 2026-10-22.
-
-Dragging onto a canvas is intentionally quiet: no drop-here wording, tinted overlay, dashed border, or drag-triggered layout changes. Releasing a supported item places it on the canvas. Embedded-player hit testing is temporarily disabled invisibly during external drags so players do not swallow the drop.
-
-
-## Move boards into projects
-On Home, drag a board tile onto a project tile and release. The board and its notes move into that project, and its members gain access according to their roles. You need editor or owner access to both locations. A failed or stale move leaves the board in place. Ctrl/Cmd+Z reverses the move within the current undo session.
-
-Migration `006_move_boards.sql` supplies an atomic, permission-checked move and attachment access transfer. Stored file paths remain stable; a private RLS-protected path registry ensures former project members cannot regain file access if attachment metadata is later removed. Direct client changes to board project IDs are revoked. The setup workflow applies new migrations before deploying the frontend.
+No real-time collaboration, chat or payments are included.
