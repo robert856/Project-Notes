@@ -1,5 +1,22 @@
 import { test, expect, type Page } from "@playwright/test";
 
+async function openDefaultNote(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "Select True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .dblclick();
+  await page.locator(".explorer-open").first().dblclick();
+}
+async function openStoryRoom(page: Page) {
+  await page.goto("/");
+  await openDefaultNote(page);
+}
+
 async function openArrange(page: Page) {
   if (
     !(await page
@@ -16,7 +33,7 @@ async function openArrange(page: Page) {
 test("create, edit, resize, move, persist and delete a card", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   await expect(
     page.getByRole("heading", { name: "The story room" }),
   ).toBeVisible();
@@ -50,6 +67,7 @@ test("create, edit, resize, move, persist and delete a card", async ({
   await page.mouse.move(rect.x + 60, rect.y + 55, { steps: 10 });
   await page.mouse.up();
   await page.reload();
+  await openDefaultNote(page);
   const saved = page
     .locator(".react-flow__node")
     .filter({ hasText: "A test idea" });
@@ -63,7 +81,7 @@ test("create, edit, resize, move, persist and delete a card", async ({
 });
 test("dashboard, search and mobile navigation", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await openStoryRoom(page);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -85,7 +103,7 @@ test("dashboard, search and mobile navigation", async ({ page }) => {
 test("drops YouTube links and local files onto the canvas and preserves them", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   const transfer = await page.evaluateHandle(() => {
     const d = new DataTransfer();
     d.setData("text/uri-list", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
@@ -119,6 +137,7 @@ test("drops YouTube links and local files onto the canvas and preserves them", a
     .filter({ hasText: "ideas.txt" });
   await expect(file).toBeVisible();
   await page.reload();
+  await openDefaultNote(page);
   await expect(file).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -195,7 +214,7 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
       );
     }
   });
-  await page.goto("/");
+  await openStoryRoom(page);
   const canvas = await page.locator(".canvas-wrap").boundingBox();
   if (!canvas) throw Error("Canvas missing");
   await page.mouse.move(canvas.x + 10, canvas.y + 10);
@@ -245,6 +264,7 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
     )
     .toBe(true);
   await page.reload();
+  await openDefaultNote(page);
   const positions = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("stillroom-cards") || "[]"),
   );
@@ -284,7 +304,7 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
 test("PDF drop is captured over cards, survives refresh, and preserves its bytes", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   await page.getByRole("textbox", { name: "Search notes" }).fill("Addison");
   const target = page.locator(".canvas-card").first();
   await expect(target).toBeVisible();
@@ -318,6 +338,7 @@ test("PDF drop is captured over cards, survives refresh, and preserves its bytes
     "",
   );
   await page.reload();
+  await openDefaultNote(page);
   await expect(card).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
@@ -335,7 +356,7 @@ test("PDF drop is captured over cards, survives refresh, and preserves its bytes
 test("oversized file rejection is visible and does not create a card", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   const transfer = await page.evaluateHandle(() => {
     const d = new DataTransfer();
     d.items.add(
@@ -361,7 +382,7 @@ test("oversized file rejection is visible and does not create a card", async ({
 test("native file drops outside the canvas cannot replace the page", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   for (const selector of ["header", ".tool-rail", ".sidebar"]) {
     const prevented = await page
       .locator(selector)
@@ -416,7 +437,7 @@ test("distributes cards in both directions and saves the spacing", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await page.goto("/");
+  await openStoryRoom(page);
   if (
     !(await page
       .getByRole("button", { name: "Select all", exact: true })
@@ -458,6 +479,7 @@ test("distributes cards in both directions and saves the spacing", async ({
     .click();
   await expect.poll(() => equalGaps("y")).toBe(true);
   await page.reload();
+  await openDefaultNote(page);
   expect(await equalGaps("x")).toBe(true);
   expect(await equalGaps("y")).toBe(true);
 });
@@ -465,7 +487,7 @@ test("distributes cards in both directions and saves the spacing", async ({
 test("canvas project tiles can move, open boards, and retain their layout", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   const home = page
     .getByRole("navigation", { name: "Canvas tools" })
     .getByRole("button", { name: "Home", exact: true });
@@ -497,6 +519,7 @@ test("canvas project tiles can move, open boards, and retain their layout", asyn
     localStorage.getItem("stillroom-layout:home"),
   );
   await page.reload();
+  await openDefaultNote(page);
   await home.click();
   expect(
     await page.evaluate(() => localStorage.getItem("stillroom-layout:home")),
@@ -525,7 +548,7 @@ test("single-click selects projects and notes; Delete is immediate and Undo rest
     dialogs++;
     void d.dismiss();
   });
-  await page.goto("/");
+  await openStoryRoom(page);
   const home = page
     .getByRole("navigation", { name: "Canvas tools" })
     .getByRole("button", { name: "Home", exact: true });
@@ -569,13 +592,14 @@ test("single-click selects projects and notes; Delete is immediate and Undo rest
   await expect(text).toBeVisible();
   expect(dialogs).toBe(0);
   await page.reload();
+  await openDefaultNote(page);
   await expect(text).toBeVisible();
 });
 
 test("Undo reverses a saved edit while typing keeps native text undo and deletion", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   const note = page
     .locator(".react-flow__node")
     .filter({ hasText: "What if the forest remembered?" });
@@ -606,7 +630,7 @@ test("multi-note deletion is immediate, restores in one undo, and supports conse
     dialogs++;
     void d.dismiss();
   });
-  await page.goto("/");
+  await openStoryRoom(page);
   await expect(page.locator(".canvas-card")).toHaveCount(8);
   await page.keyboard.press("Control+a");
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(8);
@@ -637,7 +661,7 @@ test("multi-note deletion is immediate, restores in one undo, and supports conse
 test("Undo restores a moved project tile to its original position", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   await page
     .getByRole("navigation", { name: "Canvas tools" })
     .getByRole("button", { name: "Home", exact: true })
@@ -659,7 +683,7 @@ test("Undo restores a moved project tile to its original position", async ({
 test("project canvas accepts a native URL drag and files directly beside note tiles", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   const openProject = () =>
     page
       .getByRole("main")
@@ -713,6 +737,7 @@ test("project canvas accepts a native URL drag and files directly beside note ti
   await expect(image).toBeVisible();
   await expect(page.locator(".explorer-tile")).toHaveCount(3);
   await page.reload();
+  await openDefaultNote(page);
   await openProject();
   await expect(image).toBeVisible();
   await expect(video).toBeVisible();
@@ -794,7 +819,7 @@ test("alignment and distribution stay available for Home projects and project no
       );
     }
   });
-  await page.goto("/");
+  await openStoryRoom(page);
   const home = page
     .getByRole("navigation", { name: "Canvas tools" })
     .getByRole("button", { name: "Home", exact: true });
@@ -862,6 +887,7 @@ test("alignment and distribution stay available for Home projects and project no
   );
   expect(Object.keys(noteLayout)).toHaveLength(3);
   await page.reload();
+  await openDefaultNote(page);
   await home.click();
   expect(
     await page.evaluate(() =>
@@ -873,7 +899,7 @@ test("alignment and distribution stay available for Home projects and project no
 test("Arrange dismisses after actions, outside click, Escape, navigation and window blur", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   await expect(page.locator(".canvas-card")).toHaveCount(8);
   const panel = page.getByRole("toolbar", {
     name: "Selection, alignment and distribution",
@@ -930,7 +956,7 @@ test("Arrange dismisses after actions, outside click, Escape, navigation and win
 test("drags the left Note tool onto an opened canvas and a project canvas", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   await expect(page.locator(".canvas-card")).toHaveCount(8);
   const tool = page.getByTitle("Add text", { exact: true });
   const canvas = page.locator(".canvas-wrap");
@@ -986,7 +1012,7 @@ test("drags the left Note tool onto an opened canvas and a project canvas", asyn
 test("renames a board by clicking its title, saves on Enter or blur, and cancels on Escape", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openStoryRoom(page);
   const openProject = () =>
     page
       .getByRole("main")
@@ -1008,6 +1034,7 @@ test("renames a board by clicking its title, saves on Enter or blur, and cancels
   ).toBeVisible();
   await expect(input).toHaveCount(0);
   await page.reload();
+  await openDefaultNote(page);
   await openProject();
   await page
     .getByRole("button", { name: "Rename Research board", exact: true })
@@ -1033,5 +1060,30 @@ test("renames a board by clicking its title, saves on Enter or blur, and cancels
   await page.keyboard.press("Control+z");
   await expect(
     page.getByRole("button", { name: "Rename Research board", exact: true }),
+  ).toBeVisible();
+});
+
+test("always starts on Home on first visit and after refreshing without losing notes", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await openDefaultNote(page);
+  await page.getByTitle("Add text", { exact: true }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Keep my note");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Keep my note", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".canvas-card")).toHaveCount(0);
+  await openDefaultNote(page);
+  await expect(
+    page.getByRole("heading", { name: "Keep my note", exact: true }),
   ).toBeVisible();
 });

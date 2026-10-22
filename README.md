@@ -84,3 +84,5 @@ Alignment and distribution are available through **Arrange** on Home project til
 The Arrange panel dismisses after applying an alignment/distribution, clicking outside, pressing Escape, clearing the selection, navigating to another canvas, or switching away from the browser tab/window. Use Arrange again for another operation; selection stays available after an action.
 
 Drag the left **Note** tool (or another content tool) onto a project/opened-note canvas to create an item at the exact drop location, including when zoomed or panned. The editor opens for the new item. Clicking a tool still works. On the project canvas, click the text beneath a container note's icon to rename it inline: Enter or clicking elsewhere saves, Escape cancels. Renames are permission-checked; connected saves compare the previously loaded title to detect concurrent changes. Undo also reverses renames.
+
+Stillroom starts on **Home** on every fresh load or refresh, including first use. Opening a project or note does not change this startup behavior. Saved projects, notes, attachments and personal tile layouts remain available.

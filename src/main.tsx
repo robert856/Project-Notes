@@ -229,7 +229,7 @@ function App() {
       }
     });
   const [board, setBoard] = useState(demoBoards[0].id),
-    [dashboard, setDashboard] = useState(false),
+    [dashboard, setDashboard] = useState(true),
     [query, setQuery] = useState(""),
     [editing, setEditing] = useState<Card | null>(null),
     [message, setMessage] = useState(""),
@@ -254,7 +254,7 @@ function App() {
       if (!next) setDashboard(true);
     }
   }, [projects, boards, project, board]);
-  const [workspaceHome, setWorkspaceHome] = useState(false);
+  const [workspaceHome, setWorkspaceHome] = useState(true);
   const [arrangeOpen, setArrangeOpen] = useState(false);
   useEffect(
     () => setArrangeOpen(false),
