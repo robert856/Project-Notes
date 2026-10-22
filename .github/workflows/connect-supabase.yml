@@ -1,0 +1,55 @@
+name: Connect Supabase and deploy
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/connect-supabase.yml
+      - scripts/setup_supabase.py
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: supabase-setup
+  cancel-in-progress: false
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Supabase and verify database security
+        run: python3 scripts/setup_supabase.py
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+      - name: Save public frontend configuration for future deployments
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/supabase-config.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Connect Stillroom to Supabase (public client settings)"
+            git push origin HEAD:main
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: setup
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy connected frontend
+        id: deployment
+        uses: actions/deploy-pages@v4

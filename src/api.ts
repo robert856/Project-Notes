@@ -1,10 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Card } from "./model";
+import config from "./supabase-config.json";
 const env = import.meta.env;
+const url = env.VITE_SUPABASE_URL || config.url;
+const publicKey = env.VITE_SUPABASE_ANON_KEY || config.publishableKey;
 export const db =
-  env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY
-    ? createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY)
-    : null;
+  env.VITE_LOCAL_DEMO === "true"
+    ? null
+    : url && publicKey
+      ? createClient(url, publicKey)
+      : null;
 export async function saveCard(card: Card) {
   if (!db) return { ...card, version: card.version + 1 };
   const { data, error } = await db.rpc("save_card", {
