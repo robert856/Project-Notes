@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import {
   ReactFlow,
   Background,
@@ -8,8 +8,12 @@ import {
   applyNodeChanges,
   type Node,
   type NodeProps,
+  type NodeTypes,
+  type NodeChange,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { Folder, LayoutGrid, Plus, ArrowUpRight, Trash2 } from "lucide-react";
+import { acceptedDropEffect } from "./drops";
 export interface ExplorerItem {
   id: string;
   title: string;
@@ -49,6 +53,14 @@ export function ExplorerCanvas({
   onDelete,
   canDelete = true,
   recordUndo,
+  contentNodes = [],
+  contentTypes = {},
+  onInit,
+  onContentChange,
+  onContentMove,
+  onDrop,
+  canDrop = false,
+  dropping = false,
 }: {
   items: ExplorerItem[];
   scope: string;
@@ -58,8 +70,21 @@ export function ExplorerCanvas({
   onDelete: (ids: string[]) => Promise<void>;
   canDelete?: boolean;
   recordUndo: (action: () => Promise<void>) => void;
+  contentNodes?: Node[];
+  contentTypes?: NodeTypes;
+  onInit?: (flow: ReactFlowInstance) => void;
+  onContentChange?: (changes: NodeChange[]) => void;
+  onContentMove?: (nodes: Node[]) => void;
+  onDrop?: (event: DragEvent) => Promise<void>;
+  canDrop?: boolean;
+  dropping?: boolean;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const openNode = (node: Node) => {
+    if (node.type === "tile") onOpen(node.id);
+    else (node.data.edit as (card: unknown) => void)(node.data.card);
+  };
   const [layoutRevision, setLayoutRevision] = useState(0);
   useEffect(() => {
     const refresh = () => setLayoutRevision((v) => v + 1);
@@ -95,7 +120,7 @@ export function ExplorerCanvas({
       }
       if (event.key === "Enter" && selected.length === 1) {
         event.preventDefault();
-        onOpen(selected[0].id);
+        openNode(selected[0]);
       }
       if (event.key === "Escape")
         setNodes((previous) =>
@@ -118,11 +143,11 @@ export function ExplorerCanvas({
     } catch {
       /* A damaged layout does not affect project data. */
     }
-    setNodes((previous) =>
-      items.map((item, index) => ({
+    setNodes((previous) => [
+      ...items.map((item, index) => ({
         id: item.id,
         selected: previous.some((n) => n.id === item.id && n.selected),
-        type: "tile",
+        type: "tile" as const,
         position: saved[item.id] || {
           x: 100 + (index % 5) * 200,
           y: 95 + Math.floor(index / 5) * 200,
@@ -130,22 +155,76 @@ export function ExplorerCanvas({
         data: { item, index, open: onOpen },
         style: { width: 155 },
       })),
-    );
-  }, [items, scope, layoutRevision]);
+      ...contentNodes.map((node) => ({
+        ...node,
+        selected:
+          node.selected ?? previous.some((n) => n.id === node.id && n.selected),
+      })),
+    ]);
+  }, [items, scope, layoutRevision, contentNodes]);
   return (
-    <div className="explorer-canvas">
+    <div
+      className={`explorer-canvas ${dragActive ? "drop-active" : ""}`}
+      data-drop-enabled={canDrop ? "true" : "false"}
+      onDragEnterCapture={(event) => {
+        if (canDrop) {
+          event.preventDefault();
+          setDragActive(true);
+        }
+      }}
+      onDragOverCapture={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = canDrop
+          ? acceptedDropEffect(event.dataTransfer.effectAllowed)
+          : "none";
+        if (canDrop) setDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        const r = event.currentTarget.getBoundingClientRect();
+        if (
+          event.clientX <= r.left ||
+          event.clientX >= r.right ||
+          event.clientY <= r.top ||
+          event.clientY >= r.bottom
+        )
+          setDragActive(false);
+      }}
+      onDropCapture={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+        if (canDrop && onDrop) void onDrop(event);
+      }}
+    >
+      {(dragActive || dropping) && (
+        <div className="drop-overlay" role="status">
+          <Plus size={28} />
+          <strong>{dropping ? "Adding your notes…" : "Drop it here"}</strong>
+          <span>Web links, YouTube videos, and files up to 20 MB</span>
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
-        nodeTypes={nodeTypes}
-        onNodesChange={(changes) =>
-          setNodes((previous) => applyNodeChanges(changes, previous))
-        }
-        onNodeDragStop={(_event, node) => {
+        nodeTypes={{ ...nodeTypes, ...contentTypes }}
+        onInit={onInit}
+        onNodesChange={(changes) => {
+          setNodes((previous) => applyNodeChanges(changes, previous));
+          const contentChanges = changes.filter(
+            (change) =>
+              "id" in change && contentNodes.some((n) => n.id === change.id),
+          );
+          if (contentChanges.length) onContentChange?.(contentChanges);
+        }}
+        onNodeDragStop={(_event, node, moved) => {
+          const movedNodes = moved.length ? moved : [node];
+          const content = movedNodes.filter((n) => n.type !== "tile");
+          if (content.length) onContentMove?.(content);
+          const tiles = movedNodes.filter((n) => n.type === "tile");
+          if (!tiles.length) return;
           try {
             const key = `stillroom-layout:${scope}`;
             const oldLayout = localStorage.getItem(key);
             const saved = JSON.parse(oldLayout || "{}");
-            saved[node.id] = node.position;
+            for (const tile of tiles) saved[tile.id] = tile.position;
             localStorage.setItem(key, JSON.stringify(saved));
             recordUndo(async () => {
               if (oldLayout === null) localStorage.removeItem(key);
@@ -153,10 +232,10 @@ export function ExplorerCanvas({
               window.dispatchEvent(new Event("stillroom-layout-change"));
             });
           } catch {
-            /* Layout is personal; project data is unaffected. */
+            /* Tile positions remain personal. */
           }
         }}
-        onNodeDoubleClick={(_event, node) => onOpen(node.id)}
+        onNodeDoubleClick={(_event, node) => openNode(node)}
         multiSelectionKeyCode={["Shift", "Meta", "Control"]}
         selectionMode={SelectionMode.Partial}
         panOnDrag={[1, 2]}
@@ -182,7 +261,7 @@ export function ExplorerCanvas({
         >
           <span>{selected.length} selected</span>
           {selected.length === 1 && (
-            <button onClick={() => onOpen(selected[0].id)}>Open</button>
+            <button onClick={() => openNode(selected[0])}>Open</button>
           )}
           <button
             disabled={!canDelete || deleting}
@@ -192,7 +271,7 @@ export function ExplorerCanvas({
           </button>
         </div>
       )}
-      {!items.length && (
+      {!items.length && !contentNodes.length && !dragActive && !dropping && (
         <div className="explorer-empty">
           <Folder size={32} strokeWidth={1} />
           <h2>A little space to begin.</h2>

@@ -1,5 +1,5 @@
 import { it, expect } from "vitest";
-import { droppedUrl, youtubeId } from "./drops";
+import { droppedUrl, youtubeId, acceptedDropEffect } from "./drops";
 it("reads URI lists and plain links and rejects executable URLs", () => {
   expect(droppedUrl("# comment\nhttps://example.com/", "", "")).toBe(
     "https://example.com/",
@@ -22,4 +22,11 @@ it("only embeds validated YouTube hosts and video IDs", () => {
     "javascript:alert(1)",
   ])
     expect(youtubeId(url)).toBeNull();
+});
+
+it("accepts address-bar links even when their source does not permit copying", () => {
+  expect(acceptedDropEffect("link")).toBe("link");
+  expect(acceptedDropEffect("linkMove")).toBe("link");
+  expect(acceptedDropEffect("copyLink")).toBe("copy");
+  expect(acceptedDropEffect("all")).toBe("copy");
 });

@@ -24,7 +24,12 @@ export async function saveCard(card: Card) {
         ? "This note changed since you opened it. Your edit has not overwritten it. Refresh the board, then reapply your changes."
         : error.message,
     );
-  return data as Card;
+  const saved = Array.isArray(data) ? data[0] : data;
+  if (!saved?.id)
+    throw new Error(
+      "The server did not return the saved note. Refresh before continuing.",
+    );
+  return saved as Card;
 }
 
 import type { WorkspaceSnapshot } from "./undo";

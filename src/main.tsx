@@ -59,7 +59,13 @@ import { ExplorerCanvas } from "./ExplorerCanvas";
 import { useWorkspaceUndo } from "./undo";
 import { db, saveCard, trashItems, restoreWorkspace } from "./api";
 import { alignCards, distributeCards, type Alignment } from "./alignment";
-import { droppedUrl, youtubeId, storeLocalFile, readLocalFile } from "./drops";
+import {
+  droppedUrl,
+  youtubeId,
+  acceptedDropEffect,
+  storeLocalFile,
+  readLocalFile,
+} from "./drops";
 import {
   demoBoards,
   demoCards,
@@ -256,7 +262,9 @@ function App() {
       return;
     }
     if (!boards.some((b) => b.id === board && b.project_id === project)) {
-      const next = boards.find((b) => b.project_id === project);
+      const next = boards.find(
+        (b) => b.project_id === project && !b.is_project_canvas,
+      );
       setBoard(next?.id || "");
       if (!next) setDashboard(true);
     }
@@ -311,7 +319,10 @@ function App() {
       event.preventDefault();
       const target = event.target;
       const canvas =
-        target instanceof Element && target.closest(".canvas-wrap");
+        target instanceof Element &&
+        target.closest(
+          '.canvas-wrap,.explorer-canvas[data-drop-enabled="true"]',
+        );
       if (!canvas) {
         if (event.type === "dragover" && event.dataTransfer)
           event.dataTransfer.dropEffect = "none";
@@ -433,9 +444,47 @@ function App() {
     if (error) notify(error.message);
     else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
-  const visible = cards.filter(
-    (c) => c.board_id === board && matches(c.title, c.content, query),
+  const projectCanvas = boards.find(
+    (b) => b.project_id === project && b.is_project_canvas,
   );
+  const contentBoardId =
+    dashboard && !workspaceHome ? projectCanvas?.id : board;
+  const visible = cards.filter(
+    (c) => c.board_id === contentBoardId && matches(c.title, c.content, query),
+  );
+  const ensureContentBoard = async () => {
+    if (!dashboard) return board;
+    if (workspaceHome)
+      throw new Error("Open a project to add notes, links, or files.");
+    if (projectCanvas) return projectCanvas.id;
+    let container: Board;
+    if (db) {
+      const { data, error } = await db.rpc("get_project_canvas", {
+        p_project: project,
+      });
+      if (error)
+        throw new Error(
+          "Project canvas setup is missing. Apply migration 003 in Supabase. " +
+            error.message,
+        );
+      container = (Array.isArray(data) ? data[0] : data) as Board;
+      if (!container?.id)
+        throw new Error("The project canvas could not be loaded.");
+    } else
+      container = {
+        id: crypto.randomUUID(),
+        project_id: project,
+        title: "Project canvas",
+        description: "",
+        is_project_canvas: true,
+      };
+    setBoards((previous) =>
+      previous.some((b) => b.id === container.id)
+        ? previous
+        : [...previous, container],
+    );
+    return container.id;
+  };
   const makeNodes = () =>
     visible.map((c) => ({
       id: c.id,
@@ -453,9 +502,9 @@ function App() {
       },
       draggable: canEdit,
     }));
-  const [flow, setFlow] = useState<ReactFlowInstance<
-    Node,
-    { id: string; source: string; target: string }
+  const [flow, setFlow] = useState<Pick<
+    ReactFlowInstance,
+    "screenToFlowPosition"
   > | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [dropping, setDropping] = useState(false);
@@ -467,7 +516,7 @@ function App() {
       notify("You need editor access to add files to this note.");
       return;
     }
-    if (!current || !flow) {
+    if ((!dashboard && !current) || workspaceHome || !flow) {
       notify("Open a note before dropping files.");
       return;
     }
@@ -501,12 +550,13 @@ function App() {
     let added = 0;
     const rejected: string[] = [];
     try {
+      const targetBoard = await ensureContentBoard();
       const items: (File | string)[] = files.length ? files : [url!];
       for (const [index, item] of items.entries()) {
         const id = crypto.randomUUID();
         const c: Card = {
           id,
-          board_id: board,
+          board_id: targetBoard,
           title: "",
           content: "",
           kind: typeof item === "string" ? "link" : "file",
@@ -589,7 +639,7 @@ function App() {
         );
         return makeNodes().map((n) => ({ ...n, selected: selected.has(n.id) }));
       }),
-    [cards, board, query, canEdit],
+    [cards, board, query, canEdit, dashboard, workspaceHome, boards],
   );
   const [arranging, setArranging] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -685,13 +735,20 @@ function App() {
     setNodes((nds) => applyNodeChanges(changes, nds));
   const add = async (kind: Kind) => {
     if (!canEdit) return;
-    if (!current) {
-      notify("Create a note first.");
+    if (workspaceHome) {
+      notify("Open a project to add notes.");
+      return;
+    }
+    let targetBoard: string;
+    try {
+      targetBoard = await ensureContentBoard();
+    } catch (error) {
+      notify((error as Error).message);
       return;
     }
     const c: Card = {
       id: crypto.randomUUID(),
-      board_id: board,
+      board_id: targetBoard,
       title: kind === "checklist" ? "A fresh list" : "Untitled " + kind,
       content: kind === "checklist" ? "[ ] Your first task" : "",
       kind,
@@ -940,7 +997,7 @@ function App() {
               className="rail-tool"
               key={kind}
               title={`Add ${kind}`}
-              disabled={dashboard || !canEdit}
+              disabled={workspaceHome || !canEdit}
               onClick={() => void add(kind)}
             >
               <Icon size={21} strokeWidth={1.5} />
@@ -967,7 +1024,7 @@ function App() {
           className={`rail-tool ${arrangeOpen ? "active" : ""}`}
           title="Align and distribute"
           aria-label="Align and distribute"
-          disabled={dashboard}
+          disabled={workspaceHome}
           onClick={() => setArrangeOpen(!arrangeOpen)}
           aria-expanded={arrangeOpen}
         >
@@ -1089,7 +1146,9 @@ function App() {
             {project === p.id && (
               <div className="board-nav">
                 {boards
-                  .filter((b) => b.project_id === project)
+                  .filter(
+                    (b) => b.project_id === project && !b.is_project_canvas,
+                  )
                   .map((b) => (
                     <button
                       key={b.id}
@@ -1277,7 +1336,7 @@ function App() {
             </button>
           </div>
         </section>
-        {!dashboard && (
+        {!workspaceHome && (
           <div
             className={`selection-toolbar ${arrangeOpen ? "expanded" : ""}`}
             aria-label="Note selection and alignment"
@@ -1355,7 +1414,30 @@ function App() {
           <ExplorerCanvas
             key={workspaceHome ? "home" : project}
             scope={workspaceHome ? "home" : project}
-            onDelete={workspaceHome ? deleteProjects : deleteBoards}
+            onDelete={
+              workspaceHome
+                ? deleteProjects
+                : async (ids) => {
+                    const containerIds = ids.filter((id) =>
+                      boards.some((b) => b.id === id && !b.is_project_canvas),
+                    );
+                    const content = cards.filter(
+                      (c) =>
+                        ids.includes(c.id) &&
+                        !containerIds.includes(c.board_id),
+                    );
+                    if (containerIds.length) await deleteBoards(containerIds);
+                    if (content.length) await deleteNotes(content);
+                  }
+            }
+            contentNodes={workspaceHome ? [] : nodes}
+            contentTypes={nodeTypes}
+            onInit={setFlow}
+            onContentChange={onChanges}
+            onContentMove={(moved) => void savePositions(moved)}
+            onDrop={workspaceHome ? undefined : dropOnCanvas}
+            canDrop={!workspaceHome && canEdit}
+            dropping={dropping}
             canDelete={workspaceHome || canEdit}
             recordUndo={undoHistory.recordExternal}
             label={workspaceHome ? "Create a project" : "Create a note"}
@@ -1381,13 +1463,14 @@ function App() {
                     .map((p) => ({
                       id: p.id,
                       title: p.title,
-                      detail: `${boards.filter((b) => b.project_id === p.id).length} notes`,
+                      detail: `${boards.filter((b) => b.project_id === p.id && !b.is_project_canvas).length} notes`,
                       kind: "project" as const,
                     }))
                 : boards
                     .filter(
                       (b) =>
                         b.project_id === project &&
+                        !b.is_project_canvas &&
                         (matches(b.title, b.description, query) ||
                           cards.some(
                             (c) =>
@@ -1429,7 +1512,9 @@ function App() {
             }}
             onDragOverCapture={(event) => {
               event.preventDefault();
-              event.dataTransfer.dropEffect = canEdit ? "copy" : "none";
+              event.dataTransfer.dropEffect = canEdit
+                ? acceptedDropEffect(event.dataTransfer.effectAllowed)
+                : "none";
               if (canEdit) setDropActive(true);
             }}
             onDragLeave={(event) => {

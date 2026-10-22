@@ -13,6 +13,7 @@ export interface Card {
   color: string;
 }
 export interface Board {
+  is_project_canvas?: boolean;
   id: string;
   project_id: string;
   title: string;

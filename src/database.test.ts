@@ -14,7 +14,11 @@ beforeAll(async () => {
  create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
  create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);alter table storage.objects enable row level security;
  insert into auth.users values('${owner}','owner@example.com',now()),('${other}','other@example.com',now());`);
-  for (const file of ["001_initial.sql", "002_reversible_delete.sql"])
+  for (const file of [
+    "001_initial.sql",
+    "002_reversible_delete.sql",
+    "003_project_canvas.sql",
+  ])
     await pg.exec(
       await readFile(
         new URL("../supabase/migrations/" + file, import.meta.url),
@@ -149,6 +153,34 @@ it("viewers cannot delete projects or notes through reversible-deletion function
     );
     expect(result.rows[0].trash_items).toEqual([]);
   }
+  await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
+    owner,
+  ]);
+});
+
+it("creates one authorized shared project canvas and denies viewers", async () => {
+  const first = await pg.query<{
+    get_project_canvas: { id: string; is_project_canvas: boolean };
+  }>("select to_jsonb(public.get_project_canvas($1)) as get_project_canvas", [
+    project,
+  ]);
+  const again = await pg.query<{ get_project_canvas: { id: string } }>(
+    "select to_jsonb(public.get_project_canvas($1)) as get_project_canvas",
+    [project],
+  );
+  expect(first.rows[0].get_project_canvas.is_project_canvas).toBe(true);
+  expect(first.rows[0].get_project_canvas.id).toBe(
+    again.rows[0].get_project_canvas.id,
+  );
+  await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
+    other,
+  ]);
+  await expect(
+    pg.query(
+      "select to_jsonb(public.get_project_canvas($1)) as get_project_canvas",
+      [project],
+    ),
+  ).rejects.toThrow("Access denied");
   await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
     owner,
   ]);

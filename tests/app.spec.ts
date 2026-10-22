@@ -635,3 +635,97 @@ test("Undo restores a moved project tile to its original position", async ({
     .poll(async () => Math.round((await tile.boundingBox())!.x))
     .toBe(Math.round(before.x));
 });
+
+test("project canvas accepts a native URL drag and files directly beside note tiles", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const openProject = () =>
+    page
+      .getByRole("main")
+      .getByRole("button", {
+        name: "True Myth: Addison’s Midnight Walk",
+        exact: true,
+      })
+      .click();
+  await openProject();
+  await expect(page.locator(".explorer-tile")).toHaveCount(3);
+  await expect(page.getByTitle("Add text", { exact: true })).toBeEnabled();
+  await page.evaluate(() => {
+    const a = document.createElement("a");
+    a.id = "url-drag";
+    a.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    a.textContent = "YouTube URL";
+    a.style.cssText =
+      "position:fixed;top:5px;left:500px;z-index:100;background:white;padding:8px";
+    a.addEventListener("dragstart", (event) => {
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "link";
+    });
+    document.body.append(a);
+  });
+  await page.locator("#url-drag").dragTo(page.locator(".explorer-canvas"), {
+    targetPosition: { x: 550, y: 320 },
+  });
+  const video = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "YouTube video" });
+  await expect(video).toBeVisible();
+  await expect(video.locator("iframe")).toHaveAttribute(
+    "src",
+    /youtube-nocookie.com\/embed\/dQw4w9WgXcQ/,
+  );
+  expect(new URL(page.url()).pathname).toBe("/");
+  const transfer = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(
+      new File(["png test bytes"], "direct-image.png", { type: "image/png" }),
+    );
+    return d;
+  });
+  await page.locator(".explorer-canvas").dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: 950,
+    clientY: 500,
+  });
+  const image = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "direct-image.png" });
+  await expect(image).toBeVisible();
+  await expect(page.locator(".explorer-tile")).toHaveCount(3);
+  await page.reload();
+  await openProject();
+  await expect(image).toBeVisible();
+  await expect(video).toBeVisible();
+  await video.getByRole("heading").click();
+  await image.getByRole("heading").click({ modifiers: ["Shift"] });
+  await page
+    .getByRole("button", { name: "Align and distribute", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Align left", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Align left", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const notes = JSON.parse(
+          localStorage.getItem("stillroom-cards") || "[]",
+        ).filter((c: { title: string }) =>
+          ["YouTube video", "direct-image.png"].includes(c.title),
+        );
+        return notes.length === 2 && notes[0].x === notes[1].x;
+      }),
+    )
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await image.getByRole("heading").click();
+  await page.keyboard.press("Delete");
+  await expect(image).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(image).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    image.getByRole("button", { name: "Download attachment" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("direct-image.png");
+});

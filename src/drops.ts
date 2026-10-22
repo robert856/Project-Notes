@@ -81,3 +81,10 @@ export async function readLocalFile(key: string): Promise<Blob> {
     db.close();
   }
 }
+
+// Address-bar drags can permit linking without permitting copying.
+export function acceptedDropEffect(effectAllowed: string): "copy" | "link" {
+  return effectAllowed === "link" || effectAllowed === "linkMove"
+    ? "link"
+    : "copy";
+}
