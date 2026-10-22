@@ -1,0 +1,1146 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  ReactFlow,
+  Background,
+  BackgroundVariant,
+  Controls,
+  NodeResizer,
+  Handle,
+  Position,
+  applyNodeChanges,
+  type NodeProps,
+  type Node,
+  type NodeChange,
+} from "@xyflow/react";
+import {
+  ArrowUpRight,
+  Plus,
+  Search,
+  ChevronDown,
+  ChevronRight,
+  LayoutGrid,
+  Image as ImageIcon,
+  Type,
+  CheckSquare,
+  Link as LinkIcon,
+  Paperclip,
+  MoreHorizontal,
+  ArrowLeft,
+  Users,
+  X,
+  Copy,
+  Trash2,
+  Check,
+  PanelLeftClose,
+  Sun,
+  Moon,
+  Folder,
+  HelpCircle,
+  LogOut,
+} from "lucide-react";
+import "@xyflow/react/dist/style.css";
+import "./style.css";
+import Markdown from "react-markdown";
+import { db, saveCard } from "./api";
+import {
+  demoBoards,
+  demoCards,
+  projectId,
+  safeUrl,
+  matches,
+  type Card,
+  type Board,
+  type Project,
+  type Kind,
+} from "./model";
+function CanvasCard({ data, selected }: NodeProps) {
+  const c = data.card as Card;
+  const edit = data.edit as (c: Card) => void;
+  const toggle = data.toggle as (c: Card, i: number) => void;
+  return (
+    <>
+      <NodeResizer
+        isVisible={selected && Boolean(data.canEdit)}
+        minWidth={210}
+        minHeight={150}
+        onResizeEnd={(_e, p) =>
+          void (data.resize as (c: Card, w: number, h: number) => void)(
+            c,
+            p.width,
+            p.height,
+          )
+        }
+      />
+      <Handle type="target" position={Position.Left} className="connection" />
+      <article
+        className={`canvas-card ${c.color} ${c.kind}`}
+        onDoubleClick={() => edit(c)}
+      >
+        <div className="card-top">
+          <span>
+            {c.kind === "text"
+              ? "NOTE"
+              : c.kind === "image"
+                ? "INSPIRATION"
+                : c.kind === "checklist"
+                  ? "TO-DO LIST"
+                  : c.kind === "link"
+                    ? "BOOKMARK"
+                    : c.kind.toUpperCase()}
+          </span>
+          <button
+            className="nodrag icon-button"
+            onClick={() => edit(c)}
+            aria-label={`Edit ${c.title}`}
+          >
+            <MoreHorizontal size={17} />
+          </button>
+        </div>
+        {c.kind === "image" && safeUrl(c.content) && (
+          <img className="card-image" src={safeUrl(c.content)!} alt={c.title} />
+        )}
+        <h3>{c.title}</h3>
+        {c.kind === "checklist" ? (
+          <div className="checklist">
+            {c.content.split("\n").map((line, i) => (
+              <label key={i} className="nodrag">
+                <input
+                  disabled={!data.canEdit}
+                  type="checkbox"
+                  checked={line.startsWith("[x]")}
+                  onChange={() => toggle(c, i)}
+                />
+                <span className={line.startsWith("[x]") ? "done" : ""}>
+                  {line.replace(/^\[[ x]\]\s*/, "")}
+                </span>
+              </label>
+            ))}
+          </div>
+        ) : c.kind === "link" ? (
+          <a
+            className="nodrag bookmark"
+            href={safeUrl(c.content) || undefined}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>
+              <LinkIcon size={19} /> Open inspiration
+            </span>
+            <ArrowUpRight size={16} />
+            <small>
+              {safeUrl(c.content)
+                ? new URL(c.content).hostname
+                : "Add a valid URL"}
+            </small>
+          </a>
+        ) : c.kind === "file" ? (
+          <button
+            className="nodrag file-button"
+            onClick={() => void (data.download as (c: Card) => void)(c)}
+          >
+            <Paperclip size={18} /> Download attachment
+          </button>
+        ) : (
+          c.kind !== "image" && (
+            <div className="rich-content">
+              <Markdown
+                components={{
+                  a: ({ children, href }) => (
+                    <a
+                      className="nodrag"
+                      href={safeUrl(href || "") || undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {c.content}
+              </Markdown>
+            </div>
+          )
+        )}
+      </article>
+      <Handle type="source" position={Position.Right} className="connection" />
+    </>
+  );
+}
+const nodeTypes = { card: CanvasCard };
+function App() {
+  const [user, setUser] = useState<string | null>(null),
+    [email, setEmail] = useState(""),
+    [modal, setModal] = useState<"auth" | "invite" | null>(null);
+  const [projects, setProjects] = useState<Project[]>(() =>
+      db
+        ? []
+        : JSON.parse(localStorage.getItem("stillroom-projects") || "null") || [
+            { id: projectId, title: "True Myth: Addison’s Midnight Walk" },
+          ],
+    ),
+    [project, setProject] = useState(projectId);
+  const [boards, setBoards] = useState<Board[]>(() =>
+      db
+        ? []
+        : JSON.parse(localStorage.getItem("stillroom-boards") || "null") ||
+          demoBoards,
+    ),
+    [cards, setCards] = useState<Card[]>(() => {
+      try {
+        if (db) return [];
+        return (
+          JSON.parse(localStorage.getItem("stillroom-cards") || "null") ||
+          demoCards
+        );
+      } catch {
+        return demoCards;
+      }
+    });
+  const [board, setBoard] = useState(demoBoards[0].id),
+    [dashboard, setDashboard] = useState(false),
+    [query, setQuery] = useState(""),
+    [editing, setEditing] = useState<Card | null>(null),
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false),
+    [role, setRole] = useState("owner"),
+    [inviteRole, setInviteRole] = useState("editor"),
+    [sidebar, setSidebar] = useState(false),
+    [edges, setEdges] = useState<
+      { id: string; source: string; target: string }[]
+    >([]);
+  const canEdit = !db || role === "owner" || role === "editor";
+  const current = boards.find((b) => b.id === board);
+  const notify = (s: string) => setMessage(s);
+  useEffect(() => {
+    if (!db) return;
+    void db.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user.id || null);
+      if (!data.session) setModal("auth");
+    });
+    const { data } = db.auth.onAuthStateChange((_e, s) =>
+      setUser(s?.user.id || null),
+    );
+    return () => data.subscription.unsubscribe();
+  }, []);
+  const load = useCallback(async () => {
+    if (!db || !user) return;
+    const claim = await db.rpc("claim_invites");
+    if (claim.error) notify(claim.error.message);
+    const p = await db.from("projects").select("*");
+    if (p.error) {
+      notify(p.error.message);
+      return;
+    }
+    setProjects(p.data || []);
+    if (!p.data?.length) {
+      setBoards([]);
+      setCards([]);
+      setDashboard(true);
+      return;
+    }
+    const selected = p.data.find((v) => v.id === project)?.id || p.data[0].id;
+    setProject(selected);
+    const [b, c, m] = await Promise.all([
+      db.from("boards").select("*").eq("project_id", selected),
+      db.from("cards").select("*"),
+      db
+        .from("project_members")
+        .select("role")
+        .eq("project_id", selected)
+        .eq("user_id", user)
+        .maybeSingle(),
+    ]);
+    if (b.error || c.error || m.error) {
+      notify((b.error || c.error || m.error)!.message);
+      return;
+    }
+    setBoards(b.data || []);
+    setCards(c.data || []);
+    setRole(m.data?.role || "viewer");
+    setBoard((old) =>
+      b.data?.some((v) => v.id === old) ? old : b.data?.[0]?.id || "",
+    );
+  }, [user, project]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useEffect(() => {
+    if (!db) {
+      localStorage.setItem("stillroom-cards", JSON.stringify(cards));
+      localStorage.setItem("stillroom-boards", JSON.stringify(boards));
+      localStorage.setItem("stillroom-projects", JSON.stringify(projects));
+    }
+  }, [cards, boards, projects]);
+  const persist = async (c: Card) => {
+    try {
+      const saved = await saveCard(c);
+      setCards((old) => old.map((v) => (v.id === c.id ? saved : v)));
+      return true;
+    } catch (e) {
+      notify((e as Error).message);
+      return false;
+    }
+  };
+  const edit = (c: Card) => setEditing({ ...c });
+  const toggle = (c: Card, i: number) => {
+    const lines = c.content.split("\n");
+    lines[i] = lines[i].startsWith("[x]")
+      ? lines[i].replace("[x]", "[ ]")
+      : lines[i].replace(/^\[ \]/, "[x]");
+    void persist({ ...c, content: lines.join("\n") });
+  };
+  const download = async (c: Card) => {
+    if (!db) {
+      notify("Attachments require a connected Supabase project.");
+      return;
+    }
+    const { data, error } = await db.storage
+      .from("attachments")
+      .createSignedUrl(c.content, 60);
+    if (error) notify(error.message);
+    else window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  };
+  const visible = cards.filter(
+    (c) => c.board_id === board && matches(c.title, c.content, query),
+  );
+  const makeNodes = () =>
+    visible.map((c) => ({
+      id: c.id,
+      type: "card",
+      position: { x: c.x, y: c.y },
+      style: { width: c.width, height: c.height },
+      data: {
+        card: c,
+        edit,
+        toggle,
+        download,
+        canEdit,
+        resize: (card: Card, width: number, height: number) =>
+          persist({ ...card, width, height }),
+      },
+      draggable: canEdit,
+    }));
+  const [nodes, setNodes] = useState<Node[]>([]);
+  useEffect(() => setNodes(makeNodes()), [cards, board, query, canEdit]);
+  const onChanges = (changes: NodeChange[]) =>
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  const add = async (kind: Kind) => {
+    if (!canEdit) return;
+    if (!current) {
+      notify("Create a board first.");
+      return;
+    }
+    const c: Card = {
+      id: crypto.randomUUID(),
+      board_id: board,
+      title: kind === "checklist" ? "A fresh list" : "Untitled " + kind,
+      content: kind === "checklist" ? "[ ] Your first task" : "",
+      kind,
+      x: 160 + Math.random() * 200,
+      y: 120 + Math.random() * 150,
+      width: 280,
+      height: 230,
+      version: 1,
+      color: "white",
+    };
+    if (db) {
+      const { error } = await db.from("cards").insert(c);
+      if (error) {
+        notify(error.message);
+        return;
+      }
+    }
+    setCards((v) => [...v, c]);
+    setEditing(c);
+  };
+  const newProject = async () => {
+    const title = prompt("Project name");
+    if (!title?.trim()) return;
+    if (db) {
+      const { data, error } = await db.rpc("create_project", {
+        p_title: title.trim(),
+      });
+      if (error) {
+        notify(error.message);
+        return;
+      }
+      setProject(data);
+      void load();
+    } else {
+      const p = { id: crypto.randomUUID(), title: title.trim() };
+      setProjects((v) => [...v, p]);
+      setProject(p.id);
+      setDashboard(true);
+    }
+  };
+  const createBoard = async (source?: Board) => {
+    const title = source ? source.title + " — copy" : prompt("Board name");
+    if (!title?.trim()) return;
+    const b: Board = {
+      id: crypto.randomUUID(),
+      project_id: project,
+      title: title.trim(),
+      description: source?.description || "Make room for a new idea.",
+    };
+    if (db) {
+      const { error } = await db.from("boards").insert(b);
+      if (error) {
+        notify(error.message);
+        return;
+      }
+    }
+    setBoards((v) => [...v, b]);
+    if (source) {
+      const copies = cards
+        .filter((c) => c.board_id === source.id)
+        .map((c) => ({
+          ...c,
+          id: crypto.randomUUID(),
+          board_id: b.id,
+          version: 1,
+        }));
+      if (db && copies.length) {
+        const { error } = await db.from("cards").insert(copies);
+        if (error) {
+          notify(
+            "Board created, but cards could not be copied: " + error.message,
+          );
+          return;
+        }
+      }
+      setCards((v) => [...v, ...copies]);
+    }
+    setBoard(b.id);
+    setDashboard(false);
+  };
+  const removeBoard = async () => {
+    if (!current || !confirm("Delete this board and all its cards?")) return;
+    if (db) {
+      const { error } = await db.from("boards").delete().eq("id", board);
+      if (error) {
+        notify(error.message);
+        return;
+      }
+    }
+    setBoards((v) => v.filter((b) => b.id !== board));
+    setCards((v) => v.filter((c) => c.board_id !== board));
+    setDashboard(true);
+  };
+  const duplicateCard = async (c: Card) => {
+    const copy = {
+      ...c,
+      id: crypto.randomUUID(),
+      title: c.title + " — copy",
+      x: c.x + 35,
+      y: c.y + 35,
+      version: 1,
+    };
+    if (db) {
+      const { error } = await db.from("cards").insert(copy);
+      if (error) {
+        notify(error.message);
+        return;
+      }
+    }
+    setCards((v) => [...v, copy]);
+    setEditing(null);
+  };
+  const deleteCard = async (c: Card) => {
+    if (!confirm("Delete this card?")) return;
+    if (db) {
+      const { data, error } = await db
+        .from("cards")
+        .delete()
+        .eq("id", c.id)
+        .eq("version", c.version)
+        .select("id");
+      if (error || !data?.length) {
+        notify(error?.message || "This card changed. Refresh before deleting.");
+        return;
+      }
+    }
+    setCards((v) => v.filter((v) => v.id !== c.id));
+    setEditing(null);
+  };
+  return (
+    <div className="app">
+      <aside className={sidebar ? "sidebar open" : "sidebar"}>
+        <a className="brand" href="#" onClick={() => setDashboard(true)}>
+          <span className="brand-mark">
+            <span />
+            <span />
+            <span />
+          </span>
+          stillroom<span className="brand-dot">.</span>
+        </a>
+        <div className="workspace-label">YOUR WORKSPACE</div>
+        <button
+          className={`nav-item ${dashboard ? "active" : ""}`}
+          onClick={() => {
+            setDashboard(true);
+            setSidebar(false);
+          }}
+        >
+          <LayoutGrid size={17} /> All projects
+          <span className="count">{projects.length}</span>
+        </button>
+        <button
+          className="nav-item"
+          onClick={() => {
+            setQuery("");
+            setDashboard(true);
+          }}
+        >
+          <Folder size={17} /> Project library
+        </button>
+        <div className="nav-section">
+          <span>PROJECTS</span>
+          <button aria-label="Create project" onClick={() => void newProject()}>
+            <Plus size={15} />
+          </button>
+        </div>
+        {projects.map((p) => (
+          <div key={p.id}>
+            <button
+              className={`project-nav ${project === p.id ? "selected" : ""}`}
+              onClick={() => {
+                setProject(p.id);
+                setDashboard(true);
+              }}
+            >
+              <span className="project-avatar">
+                <Moon size={16} />
+              </span>
+              <span>{p.title}</span>
+              <ChevronDown size={14} />
+            </button>
+            {project === p.id && (
+              <div className="board-nav">
+                {boards
+                  .filter((b) => b.project_id === project)
+                  .map((b) => (
+                    <button
+                      key={b.id}
+                      className={board === b.id && !dashboard ? "selected" : ""}
+                      onClick={() => {
+                        setBoard(b.id);
+                        setDashboard(false);
+                        setSidebar(false);
+                      }}
+                    >
+                      <span className="board-dot" />
+                      {b.title}
+                    </button>
+                  ))}
+                {canEdit && (
+                  <button onClick={() => void createBoard()}>
+                    <Plus size={14} /> New board
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="sidebar-bottom">
+          <div className="quiet-box">
+            <span>Good ideas need a little space.</span>
+            <span className="sprout">✳</span>
+          </div>
+          <button
+            className="nav-item"
+            onClick={() =>
+              notify(
+                "Drag cards by their body. Select a card to resize it. Double-click to edit. Use the toolbar to add ideas.",
+              )
+            }
+          >
+            <HelpCircle size={17} /> A little help <ArrowUpRight size={14} />
+          </button>
+          <div className="profile">
+            <span className="avatar">{user ? "Y" : "A"}</span>
+            <div>
+              <strong>{user ? "Your workspace" : "Addison’s workspace"}</strong>
+              <small>
+                {db ? "Connected workspace" : "Local demo · this browser"}
+              </small>
+            </div>
+            <button
+              aria-label={user ? "Sign out" : "Sign in"}
+              onClick={() =>
+                user ? void db?.auth.signOut() : setModal("auth")
+              }
+            >
+              {user ? <LogOut size={15} /> : <ChevronDown size={15} />}
+            </button>
+          </div>
+        </div>
+      </aside>
+      <main>
+        <header className="topbar">
+          <button
+            className="mobile-menu icon-button"
+            onClick={() => setSidebar(!sidebar)}
+            aria-label="Toggle navigation"
+          >
+            <PanelLeftClose size={19} />
+          </button>
+          <div className="breadcrumbs">
+            <span>Projects</span>
+            <ChevronRight size={13} />
+            <span>
+              {projects.find((p) => p.id === project)?.title || "Your projects"}
+            </span>
+            <ChevronRight size={13} />
+            <strong>
+              {dashboard ? "Overview" : current?.title || "No board"}
+            </strong>
+          </div>
+          <div className="top-actions">
+            <span className="save-state">
+              <span />
+              {db ? "Cloud workspace" : "Local demo"}
+            </span>
+            <button
+              className="icon-button"
+              onClick={() => notify("Light mode is currently enabled.")}
+              aria-label="Light mode"
+            >
+              <Sun size={18} />
+            </button>
+          </div>
+        </header>
+        <section className="board-header">
+          <div>
+            <button className="back-link" onClick={() => setDashboard(true)}>
+              <ArrowLeft size={13} /> ALL PROJECTS
+            </button>
+            <div className="title-row">
+              <h1>
+                {dashboard
+                  ? "Your creative space"
+                  : current?.title || "Start with a board"}
+              </h1>
+              <span className="private-tag">
+                <Moon size={11} /> PRIVATE
+              </span>
+            </div>
+            <p>
+              {dashboard
+                ? "A home for your stories, your inspiration, and your next big idea."
+                : current?.description}
+            </p>
+          </div>
+          <div className="header-buttons">
+            <div className="collaborator-stack">
+              <span className="avatar">A</span>
+            </div>
+            <button
+              className="button"
+              onClick={() => {
+                setEmail("");
+                setModal("invite");
+              }}
+            >
+              <Users size={15} /> Share board
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Refresh saved changes"
+              onClick={() => {
+                if (db) void load();
+                else notify("Your local changes are saved in this browser.");
+              }}
+            >
+              <MoreHorizontal size={21} />
+            </button>
+          </div>
+        </section>
+        <div className="toolbar">
+          <div className="tools">
+            {!dashboard &&
+              (
+                [
+                  "text",
+                  "image",
+                  "checklist",
+                  "link",
+                  "file",
+                  "group",
+                ] as Kind[]
+              ).map((kind, i) => {
+                const Icon = [
+                  Type,
+                  ImageIcon,
+                  CheckSquare,
+                  LinkIcon,
+                  Paperclip,
+                  LayoutGrid,
+                ][i];
+                return (
+                  <button
+                    key={kind}
+                    disabled={!canEdit}
+                    onClick={() => void add(kind)}
+                    title={`Add ${kind}`}
+                  >
+                    <Icon size={18} />
+                    <span>
+                      {["Note", "Image", "To-do", "Link", "File", "Group"][i]}
+                    </span>
+                  </button>
+                );
+              })}
+            {dashboard && (
+              <span className="board-count">
+                {boards.filter((b) => b.project_id === project).length} boards ·
+                endless possibilities
+              </span>
+            )}
+          </div>
+          <div className="toolbar-right">
+            <label className="search">
+              <Search size={15} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find an idea…"
+                aria-label="Search boards and cards"
+              />
+              <kbd>⌕</kbd>
+            </label>
+            {canEdit && (
+              <button
+                className="add-button"
+                onClick={() =>
+                  dashboard ? void createBoard() : void add("text")
+                }
+              >
+                <Plus size={16} />
+                <span>{dashboard ? "New board" : "Add card"}</span>
+              </button>
+            )}
+          </div>
+        </div>
+        {dashboard ? (
+          <div className="dashboard">
+            <div className="section-heading">
+              <h2>Your boards</h2>
+              <span>Room to think. Space to create.</span>
+            </div>
+            <div className="board-grid">
+              {boards
+                .filter(
+                  (b) =>
+                    b.project_id === project &&
+                    (matches(b.title, b.description, query) ||
+                      cards.some(
+                        (c) =>
+                          c.board_id === b.id &&
+                          matches(c.title, c.content, query),
+                      )),
+                )
+                .map((b, i) => (
+                  <button
+                    className="board-tile"
+                    key={b.id}
+                    onClick={() => {
+                      setBoard(b.id);
+                      setDashboard(false);
+                    }}
+                  >
+                    <div className={`board-cover cover-${i % 3}`}>
+                      <div className="mini-note">
+                        {i === 0
+                          ? "Let wonder lead."
+                          : i === 1
+                            ? "Meet the characters."
+                            : "Follow the feeling."}
+                      </div>
+                      <div className="mini-photo" />
+                      <div className="mini-lines">
+                        ━━━━
+                        <br />
+                        ━━━━
+                        <br />
+                        ━━━
+                      </div>
+                    </div>
+                    <div className="tile-info">
+                      <h3>
+                        {b.title}
+                        <ArrowUpRight size={17} />
+                      </h3>
+                      <p>{b.description}</p>
+                      <small>
+                        {cards.filter((c) => c.board_id === b.id).length} cards{" "}
+                        <span>·</span> Private board
+                      </small>
+                    </div>
+                  </button>
+                ))}
+              {canEdit && (
+                <button
+                  className="empty-board"
+                  onClick={() => void createBoard()}
+                >
+                  <span>
+                    <Plus size={25} />
+                  </span>
+                  <strong>Make a little room</strong>
+                  <small>Create a new board</small>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="canvas-wrap">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onChanges}
+              onNodeDragStop={(_e, n) => {
+                const c = cards.find((c) => c.id === n.id);
+                if (c) void persist({ ...c, x: n.position.x, y: n.position.y });
+              }}
+              onNodeClick={() => {}}
+              onNodesDelete={() => {}}
+              deleteKeyCode={null}
+              onConnect={(connection) => {
+                if (canEdit) {
+                  setEdges((v) => [
+                    ...v,
+                    {
+                      id: crypto.randomUUID(),
+                      source: connection.source,
+                      target: connection.target,
+                    },
+                  ]);
+                  notify("Visual connection added for this session.");
+                }
+              }}
+              onNodeDoubleClick={(_e, n) => {
+                const c = cards.find((c) => c.id === n.id);
+                if (c) edit(c);
+              }}
+              onNodeDragStart={() => setMessage("")}
+              onMoveEnd={() => {}}
+              defaultViewport={{ x: 35, y: 30, zoom: 0.85 }}
+              minZoom={0.25}
+              maxZoom={1.6}
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={22}
+                size={1}
+                color="#deddd5"
+              />
+              <Controls showInteractive={false} />
+            </ReactFlow>
+            <div className="canvas-caption">
+              <span className="tiny-star">✳</span> A little space for a big
+              story.
+            </div>
+            <div className="board-options">
+              {canEdit && current && (
+                <>
+                  <button
+                    onClick={() => {
+                      const name = prompt("Board title", current.title);
+                      if (!name?.trim()) return;
+                      void (async () => {
+                        if (db) {
+                          const { error } = await db
+                            .from("boards")
+                            .update({ title: name.trim() })
+                            .eq("id", board);
+                          if (error) {
+                            notify(error.message);
+                            return;
+                          }
+                        }
+                        setBoards((v) =>
+                          v.map((b) =>
+                            b.id === board ? { ...b, title: name.trim() } : b,
+                          ),
+                        );
+                      })();
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button onClick={() => void createBoard(current)}>
+                    Duplicate
+                  </button>
+                  <button onClick={() => void removeBoard()}>Delete</button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+      {message && (
+        <div className="toast" role="status">
+          <span>{message}</span>
+          <button
+            aria-label="Dismiss notification"
+            onClick={() => setMessage("")}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {editing && (
+        <div className="modal-backdrop">
+          <form
+            className="modal"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setBusy(true);
+              void persist(editing).then((ok) => {
+                setBusy(false);
+                if (ok) setEditing(null);
+              });
+            }}
+          >
+            <div className="modal-heading">
+              <div>
+                <small>{canEdit ? "MAKE IT YOURS" : "VIEW CARD"}</small>
+                <h2>
+                  {editing.kind === "group"
+                    ? "Idea group"
+                    : "Edit " + editing.kind}
+                </h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Close editor"
+                onClick={() => setEditing(null)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <label>
+              Title
+              <input
+                disabled={!canEdit}
+                required
+                value={editing.title}
+                onChange={(e) =>
+                  setEditing({ ...editing, title: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              {editing.kind === "image" || editing.kind === "link"
+                ? "URL"
+                : editing.kind === "checklist"
+                  ? "Tasks · one per line, starting with [ ] or [x]"
+                  : "Content · Markdown formatting supported"}
+              <textarea
+                disabled={!canEdit}
+                rows={8}
+                value={editing.content}
+                onChange={(e) =>
+                  setEditing({ ...editing, content: e.target.value })
+                }
+              />
+            </label>
+            {editing.kind === "file" && canEdit && (
+              <label>
+                Upload a private attachment
+                <input
+                  type="file"
+                  disabled={!db || busy}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !db) return;
+                    setBusy(true);
+                    const path = `${project}/${crypto.randomUUID()}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+                    const up = await db.storage
+                      .from("attachments")
+                      .upload(path, file);
+                    if (up.error) notify(up.error.message);
+                    else {
+                      const record = await db
+                        .from("attachments")
+                        .insert({
+                          project_id: project,
+                          card_id: editing.id,
+                          path,
+                          name: file.name,
+                        });
+                      if (record.error) {
+                        await db.storage.from("attachments").remove([path]);
+                        notify(record.error.message);
+                      } else
+                        setEditing({
+                          ...editing,
+                          content: path,
+                          title: file.name,
+                        });
+                    }
+                    setBusy(false);
+                  }}
+                />
+                {!db && <small>Connect Supabase to upload files.</small>}
+              </label>
+            )}
+            <label>
+              Card color
+              <select
+                disabled={!canEdit}
+                value={editing.color}
+                onChange={(e) =>
+                  setEditing({ ...editing, color: e.target.value })
+                }
+              >
+                {["white", "cream", "lavender", "pink"].map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <div className="modal-footer">
+              {canEdit && (
+                <>
+                  <button
+                    type="button"
+                    className="icon-button danger"
+                    title="Delete card"
+                    onClick={() => void deleteCard(editing)}
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => void duplicateCard(editing)}
+                  >
+                    <Copy size={15} /> Duplicate
+                  </button>
+                  <button className="primary" disabled={busy}>
+                    {busy ? "Saving…" : "Save changes"}
+                    <Check size={15} />
+                  </button>
+                </>
+              )}
+            </div>
+            <small className="editor-hint">
+              Plain text preserves your words safely. Version {editing.version}{" "}
+              · changes save when you choose Save.
+            </small>
+          </form>
+        </div>
+      )}
+      {modal && (
+        <div className="modal-backdrop">
+          <form
+            className="modal small-modal"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!db) {
+                notify(
+                  "This is a local demo. Follow the setup guide to connect Supabase for accounts and sharing.",
+                );
+                return;
+              }
+              setBusy(true);
+              if (modal === "auth") {
+                const { error } = await db.auth.signInWithOtp({
+                  email,
+                  options: {
+                    emailRedirectTo:
+                      window.location.origin + window.location.pathname,
+                  },
+                });
+                notify(
+                  error
+                    ? error.message
+                    : "Check your email for your sign-in link.",
+                );
+              } else {
+                const { error } = await db
+                  .from("project_invites")
+                  .insert({
+                    project_id: project,
+                    email: email.trim().toLowerCase(),
+                    role: inviteRole,
+                  });
+                notify(
+                  error
+                    ? error.message
+                    : "Invitation recorded. Ask your collaborator to sign in at this app using that email. Email delivery is not configured.",
+                );
+                if (!error) setModal(null);
+              }
+              setBusy(false);
+            }}
+          >
+            <div className="modal-heading">
+              <h2>
+                {modal === "auth"
+                  ? "Your ideas, together."
+                  : "Make room for someone."}
+              </h2>
+              <button
+                type="button"
+                aria-label="Close dialog"
+                onClick={() => setModal(null)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p>
+              {modal === "auth"
+                ? "Sign in with a secure email link to access your shared projects."
+                : "Invite a collaborator to this project. Permissions apply to every board in the project."}
+            </p>
+            <label>
+              Email
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+              />
+            </label>
+            {modal === "invite" && (
+              <label>
+                Permission
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                >
+                  <option value="editor">Editor · can create and edit</option>
+                  <option value="viewer">Viewer · read only</option>
+                  <option value="owner">Owner · can manage access</option>
+                </select>
+              </label>
+            )}
+            <button
+              className="primary"
+              disabled={
+                busy || (modal === "invite" && db !== null && role !== "owner")
+              }
+            >
+              {busy
+                ? "Please wait…"
+                : modal === "auth"
+                  ? "Send sign-in link"
+                  : "Create invitation"}
+              <ArrowUpRight size={16} />
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
