@@ -1181,3 +1181,370 @@ h1 {
 .selection-toolbar .arrange-icon:disabled {
   opacity: 0.35;
 }
+/* A quiet canvas workspace, with tools kept in a compact left rail. */
+.minimal-workspace {
+  background: #f4f5f1;
+}
+.tool-rail {
+  width: 68px;
+  flex-shrink: 0;
+  border-right: 1px solid #dfe3da;
+  background: #f0f2ec;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 15px 7px 12px;
+  gap: 7px;
+  z-index: 32;
+  overflow-y: auto;
+}
+.rail-brand {
+  height: 33px;
+  margin-bottom: 9px;
+  display: grid;
+  place-items: center;
+}
+.rail-brand .brand-mark {
+  transform: rotate(-15deg) scale(0.65);
+}
+.rail-tool {
+  width: 52px;
+  min-height: 49px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 5px;
+  border-radius: 7px;
+  color: #687260;
+  flex-shrink: 0;
+}
+.rail-tool span {
+  font-size: 9px;
+  line-height: 1.2;
+}
+.rail-tool:hover:not(:disabled),
+.rail-tool.active {
+  background: #e0e7d7;
+  color: #405337;
+}
+.rail-tool:disabled {
+  opacity: 0.3;
+}
+.rail-divider {
+  width: 29px;
+  height: 1px;
+  background: #d9dfd2;
+  margin: 5px 0;
+  flex-shrink: 0;
+}
+.rail-help {
+  margin-top: auto;
+}
+.minimal-workspace .sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: -310px;
+  width: 250px;
+  z-index: 35;
+  transition: left 0.15s;
+  box-shadow: 10px 0 40px #0002;
+}
+.minimal-workspace .sidebar.open {
+  left: 68px;
+}
+.drawer-dismiss {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  background: #28371f22;
+  cursor: default;
+}
+.minimal-workspace .topbar {
+  height: 43px;
+  padding: 0 24px;
+  background: #fcfdf9;
+}
+.minimal-workspace .breadcrumbs button {
+  padding: 0;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.minimal-workspace .breadcrumbs {
+  gap: 10px;
+  font-size: 10px;
+}
+.minimal-workspace .mobile-menu {
+  display: none;
+}
+.minimal-workspace .top-actions {
+  gap: 18px;
+}
+.minimal-workspace .top-actions .search {
+  border-right: 1px solid #e2e6db;
+  padding-right: 15px;
+}
+.minimal-workspace .search input {
+  width: 130px;
+}
+.minimal-workspace .board-header {
+  height: 48px;
+  min-height: 48px;
+  padding: 0 24px;
+  background: #fcfdf9;
+  border-bottom: 1px solid #e2e6dc;
+}
+.minimal-workspace .board-header h1 {
+  font-size: 14px;
+  letter-spacing: -0.3px;
+  font-weight: 600;
+}
+.minimal-workspace .board-header p,
+.minimal-workspace .back-link,
+.minimal-workspace .private-tag,
+.minimal-workspace .collaborator-stack {
+  display: none;
+}
+.minimal-workspace .header-buttons {
+  padding: 0;
+  gap: 10px;
+}
+.minimal-workspace .header-buttons .button {
+  font-size: 10px;
+  padding: 6px 9px;
+  background: transparent;
+  border-color: transparent;
+}
+.minimal-workspace .canvas-wrap {
+  background: #f0f2ed;
+}
+.minimal-workspace .canvas-card {
+  border-radius: 9px;
+  box-shadow: 0 2px 5px #34442b12;
+  border-color: #e3e6db;
+}
+.minimal-workspace .canvas-card.image {
+  border-radius: 9px;
+  overflow: hidden;
+}
+.minimal-workspace .react-flow__node-card {
+  border-radius: 9px;
+}
+.minimal-workspace .selection-toolbar {
+  display: none;
+  position: absolute;
+  left: 77px;
+  top: 425px;
+  z-index: 33;
+  width: 245px;
+  white-space: normal;
+  flex-wrap: wrap;
+  border: 1px solid #dfe4d6;
+  border-radius: 10px;
+  padding: 13px;
+  background: #fffffc;
+  box-shadow: 0 5px 22px #27341d1c;
+  overflow: visible;
+}
+.minimal-workspace .selection-toolbar.expanded {
+  display: flex;
+}
+.minimal-workspace .selection-count {
+  padding: 0 5px;
+}
+.minimal-workspace .alignment-label {
+  width: 100%;
+  border: 0;
+  padding: 6px 0 3px;
+  font-size: 10px;
+}
+.minimal-workspace .selection-help {
+  display: block;
+  width: 100%;
+  font-size: 9px;
+  padding: 6px 0 0;
+  line-height: 1.6;
+}
+.minimal-workspace .selection-toolbar .arrange-icon {
+  width: 31px;
+  height: 31px;
+}
+.minimal-workspace .selection-toolbar > .alignment-label:first-of-type {
+  margin-top: 5px;
+}
+.explorer-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #f0f2ed;
+}
+.explorer-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 155px;
+  gap: 8px;
+  padding: 10px 5px;
+  cursor: grab;
+}
+.explorer-open {
+  position: relative;
+  width: 73px;
+  height: 73px;
+  border-radius: 17px;
+  background: #ded2a6;
+  color: #78682e;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 4px #46512b09;
+}
+.tile-color-1 {
+  background: #d8e3c9;
+  color: #658047;
+}
+.tile-color-2 {
+  background: #ded8ea;
+  color: #7e6a9e;
+}
+.tile-color-3 {
+  background: #ead5ca;
+  color: #a47b64;
+}
+.tile-color-4 {
+  background: #cbdde1;
+  color: #62838b;
+}
+.tile-arrow {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  opacity: 0;
+}
+.explorer-open:hover .tile-arrow {
+  opacity: 0.8;
+}
+.explorer-tile strong {
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 550;
+  white-space: pre-wrap;
+}
+.explorer-tile small {
+  font-size: 10px;
+  color: #979f8c;
+}
+.explorer-canvas .react-flow__node.selected .explorer-open {
+  outline: 2px solid #829969;
+  outline-offset: 4px;
+}
+.explorer-caption {
+  position: absolute;
+  bottom: 23px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #9ba48f;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.explorer-empty {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #929d84;
+}
+.explorer-empty h2 {
+  font-family: Manrope, sans-serif;
+  font-size: 20px;
+  color: #657458;
+  font-weight: 500;
+}
+.explorer-empty p {
+  font-size: 12px;
+}
+.explorer-empty .button {
+  margin-top: 12px;
+  background: #fffef9;
+}
+@media (max-width: 760px) {
+  .tool-rail {
+    width: 57px;
+    padding: 10px 3px;
+    gap: 3px;
+  }
+  .rail-tool {
+    width: 47px;
+    min-height: 46px;
+  }
+  .minimal-workspace .sidebar.open {
+    left: 57px;
+  }
+  .minimal-workspace .topbar {
+    padding: 0 12px;
+  }
+  .minimal-workspace .breadcrumbs button {
+    max-width: 120px;
+    font-size: 10px;
+  }
+  .minimal-workspace .breadcrumbs > strong {
+    display: none;
+  }
+  .minimal-workspace .top-actions .save-state {
+    display: none;
+  }
+  .minimal-workspace .top-actions {
+    gap: 5px;
+  }
+  .minimal-workspace .search input {
+    width: 90px;
+  }
+  .minimal-workspace .top-actions .search {
+    padding: 0;
+    border: 0;
+  }
+  .minimal-workspace .board-header {
+    padding: 0 12px;
+    height: 42px;
+    min-height: 42px;
+  }
+  .minimal-workspace .board-header h1 {
+    font-size: 12px;
+    max-width: 150px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+  .minimal-workspace .header-buttons .button {
+    font-size: 0;
+    padding: 5px;
+  }
+  .minimal-workspace .selection-toolbar {
+    left: 64px;
+    top: 330px;
+    width: 240px;
+  }
+  .minimal-workspace .canvas-caption {
+    font-size: 8px;
+    white-space: normal;
+    max-width: 150px;
+    right: 10px;
+  }
+  .explorer-empty {
+    width: 210px;
+  }
+  .minimal-workspace .board-options {
+    display: flex;
+    right: 12px;
+    bottom: 55px;
+  }
+}

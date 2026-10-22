@@ -58,13 +58,17 @@ test("dashboard, search and mobile navigation", async ({ page }) => {
   ).toBe(true);
   await page.getByRole("button", { name: "Toggle navigation" }).click();
   await page.getByRole("button", { name: /All projects/ }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your creative space" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "Open True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .click();
   await page
     .getByRole("textbox", { name: "Search boards and cards" })
     .fill("creatures");
-  await expect(page.locator(".board-tile")).toHaveCount(1);
+  await expect(page.locator(".explorer-tile")).toHaveCount(1);
 });
 
 test("drops YouTube links and local files onto the canvas and preserves them", async ({
@@ -214,6 +218,9 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
   expect(moved[0].x).toBeGreaterThan(65);
   expect(moved[1].x - moved[0].x).toBeCloseTo(360);
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(2);
+  await page
+    .getByRole("button", { name: "Align and distribute", exact: true })
+    .click();
   await page.getByRole("button", { name: "Align top", exact: true }).click();
   await expect
     .poll(() =>
@@ -231,6 +238,14 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
   );
   expect(positions[0].y).toBe(positions[1].y);
   expect(positions[2].x).toBe(750);
+  if (
+    !(await page
+      .getByRole("button", { name: "Select all", exact: true })
+      .isVisible())
+  )
+    await page
+      .getByRole("button", { name: "Align and distribute", exact: true })
+      .click();
   await page.getByRole("button", { name: "Select all", exact: true }).click();
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
   await page.getByRole("button", { name: "Align left", exact: true }).click();
@@ -335,7 +350,7 @@ test("native file drops outside the canvas cannot replace the page", async ({
   page,
 }) => {
   await page.goto("/");
-  for (const selector of ["header", ".toolbar", ".sidebar"]) {
+  for (const selector of ["header", ".tool-rail", ".sidebar"]) {
     const prevented = await page
       .locator(selector)
       .first()
@@ -390,6 +405,14 @@ test("distributes cards in both directions and saves the spacing", async ({
 }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto("/");
+  if (
+    !(await page
+      .getByRole("button", { name: "Select all", exact: true })
+      .isVisible())
+  )
+    await page
+      .getByRole("button", { name: "Align and distribute", exact: true })
+      .click();
   await page.getByRole("button", { name: "Select all", exact: true }).click();
   await page
     .getByRole("button", { name: "Distribute horizontally", exact: true })
@@ -428,9 +451,16 @@ test("project deletion requires confirmation, preserves another project, and per
   page,
 }) => {
   await page.goto("/");
+  await page
+    .getByRole("navigation", { name: "Canvas tools" })
+    .getByRole("button", { name: "Home", exact: true })
+    .click();
   page.once("dialog", (d) => d.accept("Keep this project"));
   await page
     .getByRole("button", { name: "Create project", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Toggle navigation", exact: true })
     .click();
   await page
     .getByRole("button", {
@@ -443,7 +473,7 @@ test("project deletion requires confirmation, preserves another project, and per
     .getByRole("button", { name: "Delete project", exact: true })
     .click();
   await expect(
-    page.getByRole("button", {
+    page.getByRole("heading", {
       name: "True Myth: Addison’s Midnight Walk",
       exact: true,
     }),
@@ -459,7 +489,7 @@ test("project deletion requires confirmation, preserves another project, and per
     }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Keep this project", exact: true }),
+    page.getByRole("heading", { name: "Keep this project", exact: true }),
   ).toBeVisible();
   await page.reload();
   const state = await page.evaluate(() => ({
@@ -472,4 +502,59 @@ test("project deletion requires confirmation, preserves another project, and per
   ]);
   expect(state.boards).toHaveLength(0);
   expect(state.cards).toHaveLength(0);
+});
+
+test("canvas project tiles can move, open boards, and retain their layout", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const home = page
+    .getByRole("navigation", { name: "Canvas tools" })
+    .getByRole("button", { name: "Home", exact: true });
+  await home.click();
+  const project = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "True Myth: Addison’s Midnight Walk" });
+  await expect(project).toBeVisible();
+  const box = await project.locator(".explorer-open").boundingBox();
+  if (!box) throw Error("Missing project tile");
+  await page.mouse.move(box.x + 30, box.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 180, box.y + 90, { steps: 15 });
+  await page.mouse.up();
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Object.keys(
+            JSON.parse(localStorage.getItem("stillroom-layout:home") || "{}"),
+          ).length,
+      ),
+    )
+    .toBe(1);
+  const layout = await page.evaluate(() =>
+    localStorage.getItem("stillroom-layout:home"),
+  );
+  await page.reload();
+  await home.click();
+  expect(
+    await page.evaluate(() => localStorage.getItem("stillroom-layout:home")),
+  ).toBe(layout);
+  await project
+    .getByRole("button", {
+      name: "Open True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator(".explorer-tile")).toHaveCount(3);
+  await page
+    .getByRole("button", { name: "Open The story room", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "The story room", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".canvas-card")).toHaveCount(8);
 });

@@ -16,6 +16,8 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
+  Home,
+  SlidersHorizontal,
   AlignHorizontalJustifyStart,
   AlignHorizontalJustifyCenter,
   AlignHorizontalJustifyEnd,
@@ -52,6 +54,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./style.css";
 import Markdown from "react-markdown";
+import { ExplorerCanvas } from "./ExplorerCanvas";
 import { db, saveCard } from "./api";
 import { alignCards, distributeCards, type Alignment } from "./alignment";
 import { droppedUrl, youtubeId, storeLocalFile, readLocalFile } from "./drops";
@@ -256,6 +259,8 @@ function App() {
       if (!next) setDashboard(true);
     }
   }, [projects, boards, project, board]);
+  const [workspaceHome, setWorkspaceHome] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
   const canEdit = !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
@@ -655,6 +660,7 @@ function App() {
     setEditing(c);
   };
   const newProject = async () => {
+    setWorkspaceHome(false);
     const title = prompt("Project name");
     if (!title?.trim()) return;
     if (db) {
@@ -714,6 +720,7 @@ function App() {
     notify("Project deleted.");
   };
   const createBoard = async (source?: Board) => {
+    setWorkspaceHome(false);
     if (!projects.some((p) => p.id === project)) {
       notify("Create a project first using the + beside Projects.");
       return;
@@ -808,7 +815,106 @@ function App() {
     setEditing(null);
   };
   return (
-    <div className="app">
+    <div className="app minimal-workspace">
+      <nav className="tool-rail" aria-label="Canvas tools">
+        <button
+          className="rail-brand"
+          title="Home"
+          aria-label="Home"
+          onClick={() => {
+            setWorkspaceHome(true);
+            setDashboard(true);
+            setSidebar(false);
+            setQuery("");
+          }}
+        >
+          <span className="brand-mark">
+            <span />
+            <span />
+            <span />
+          </span>
+        </button>
+        <button
+          className="rail-tool"
+          title="Browse projects"
+          aria-label="Toggle navigation"
+          onClick={() => setSidebar(!sidebar)}
+        >
+          <Folder size={21} strokeWidth={1.5} />
+          <span>Browse</span>
+        </button>
+        <div className="rail-divider" />
+        {(
+          ["text", "link", "checklist", "image", "file", "group"] as Kind[]
+        ).map((kind, index) => {
+          const Icon = [
+            Type,
+            LinkIcon,
+            CheckSquare,
+            ImageIcon,
+            Paperclip,
+            LayoutGrid,
+          ][index];
+          return (
+            <button
+              className="rail-tool"
+              key={kind}
+              title={`Add ${kind}`}
+              disabled={dashboard || !canEdit}
+              onClick={() => void add(kind)}
+            >
+              <Icon size={21} strokeWidth={1.5} />
+              <span>
+                {["Note", "Link", "To-do", "Image", "File", "Group"][index]}
+              </span>
+            </button>
+          );
+        })}
+        <button
+          className="rail-tool"
+          title={workspaceHome ? "Create project" : "New board"}
+          aria-label={workspaceHome ? "Create project" : "New board"}
+          disabled={!workspaceHome && !canEdit}
+          onClick={() =>
+            workspaceHome ? void newProject() : void createBoard()
+          }
+        >
+          <Folder size={21} strokeWidth={1.5} />
+          <span>{workspaceHome ? "Project" : "Board"}</span>
+        </button>
+        <div className="rail-divider" />
+        <button
+          className={`rail-tool ${arrangeOpen ? "active" : ""}`}
+          title="Align and distribute"
+          aria-label="Align and distribute"
+          disabled={dashboard}
+          onClick={() => setArrangeOpen(!arrangeOpen)}
+          aria-expanded={arrangeOpen}
+        >
+          <SlidersHorizontal size={21} strokeWidth={1.5} />
+          <span>Arrange</span>
+        </button>
+        <button
+          className="rail-tool rail-help"
+          title="Canvas help"
+          onClick={() =>
+            notify(
+              "Drag empty canvas to select. Shift-click adds cards. Arrange aligns or distributes your selection. Hold Space to pan. Drop files and links directly onto a board.",
+            )
+          }
+        >
+          <HelpCircle size={20} strokeWidth={1.5} />
+          <span>Help</span>
+        </button>
+      </nav>
+      {sidebar && (
+        <button
+          className="drawer-dismiss"
+          aria-label="Close navigation"
+          onClick={() => setSidebar(false)}
+        />
+      )}
+
       <aside className={sidebar ? "sidebar open" : "sidebar"}>
         <a className="brand" href="#" onClick={() => setDashboard(true)}>
           <span className="brand-mark">
@@ -823,6 +929,7 @@ function App() {
           className={`nav-item ${dashboard ? "active" : ""}`}
           onClick={() => {
             setDashboard(true);
+            setWorkspaceHome(true);
             setSidebar(false);
           }}
         >
@@ -840,7 +947,10 @@ function App() {
         </button>
         <div className="nav-section">
           <span>PROJECTS</span>
-          <button aria-label="Create project" onClick={() => void newProject()}>
+          <button
+            aria-label="Create project from navigation"
+            onClick={() => void newProject()}
+          >
             <Plus size={15} />
           </button>
         </div>
@@ -850,7 +960,9 @@ function App() {
               className={`project-nav ${project === p.id ? "selected" : ""}`}
               onClick={() => {
                 setProject(p.id);
+                setWorkspaceHome(false);
                 setDashboard(true);
+                setSidebar(false);
               }}
             >
               <span className="project-avatar">
@@ -930,17 +1042,45 @@ function App() {
             <PanelLeftClose size={19} />
           </button>
           <div className="breadcrumbs">
-            <span>Projects</span>
-            <ChevronRight size={13} />
-            <span>
-              {projects.find((p) => p.id === project)?.title || "Your projects"}
-            </span>
-            <ChevronRight size={13} />
-            <strong>
-              {dashboard ? "Overview" : current?.title || "No board"}
-            </strong>
+            <button
+              onClick={() => {
+                setWorkspaceHome(true);
+                setDashboard(true);
+                setQuery("");
+              }}
+            >
+              <Home size={14} /> Home
+            </button>
+            {!workspaceHome && (
+              <>
+                <ChevronRight size={12} />
+                <button
+                  onClick={() => {
+                    setWorkspaceHome(false);
+                    setDashboard(true);
+                  }}
+                >
+                  {projects.find((p) => p.id === project)?.title || "Projects"}
+                </button>
+                {!dashboard && (
+                  <>
+                    <ChevronRight size={12} />
+                    <strong>{current?.title}</strong>
+                  </>
+                )}
+              </>
+            )}
           </div>
           <div className="top-actions">
+            <label className="search">
+              <Search size={15} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find an idea…"
+                aria-label="Search boards and cards"
+              />
+            </label>
             <span className="save-state">
               <span />
               {db ? "Cloud workspace" : "Local demo"}
@@ -956,13 +1096,22 @@ function App() {
         </header>
         <section className="board-header">
           <div>
-            <button className="back-link" onClick={() => setDashboard(true)}>
+            <button
+              className="back-link"
+              onClick={() => {
+                setWorkspaceHome(true);
+                setDashboard(true);
+              }}
+            >
               <ArrowLeft size={13} /> ALL PROJECTS
             </button>
             <div className="title-row">
               <h1>
                 {dashboard
-                  ? "Your creative space"
+                  ? workspaceHome
+                    ? "Home"
+                    : projects.find((p) => p.id === project)?.title ||
+                      "Your creative space"
                   : current?.title || "Start with a board"}
               </h1>
               <span className="private-tag">
@@ -976,7 +1125,8 @@ function App() {
             </p>
           </div>
           <div className="header-buttons">
-            {projects.some((p) => p.id === project) &&
+            {!workspaceHome &&
+              projects.some((p) => p.id === project) &&
               (!db || role === "owner") && (
                 <button
                   className="button danger"
@@ -1012,75 +1162,9 @@ function App() {
             </button>
           </div>
         </section>
-        <div className="toolbar">
-          <div className="tools">
-            {!dashboard &&
-              (
-                [
-                  "text",
-                  "image",
-                  "checklist",
-                  "link",
-                  "file",
-                  "group",
-                ] as Kind[]
-              ).map((kind, i) => {
-                const Icon = [
-                  Type,
-                  ImageIcon,
-                  CheckSquare,
-                  LinkIcon,
-                  Paperclip,
-                  LayoutGrid,
-                ][i];
-                return (
-                  <button
-                    key={kind}
-                    disabled={!canEdit}
-                    onClick={() => void add(kind)}
-                    title={`Add ${kind}`}
-                  >
-                    <Icon size={18} />
-                    <span>
-                      {["Note", "Image", "To-do", "Link", "File", "Group"][i]}
-                    </span>
-                  </button>
-                );
-              })}
-            {dashboard && (
-              <span className="board-count">
-                {boards.filter((b) => b.project_id === project).length} boards ·
-                endless possibilities
-              </span>
-            )}
-          </div>
-          <div className="toolbar-right">
-            <label className="search">
-              <Search size={15} />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Find an idea…"
-                aria-label="Search boards and cards"
-              />
-              <kbd>⌕</kbd>
-            </label>
-            {canEdit && (
-              <button
-                className="add-button"
-                onClick={() =>
-                  dashboard ? void createBoard() : void add("text")
-                }
-              >
-                <Plus size={16} />
-                <span>{dashboard ? "New board" : "Add card"}</span>
-              </button>
-            )}
-          </div>
-        </div>
         {!dashboard && (
           <div
-            className="selection-toolbar"
+            className={`selection-toolbar ${arrangeOpen ? "expanded" : ""}`}
             aria-label="Card selection and alignment"
           >
             <button onClick={selectAll} disabled={!nodes.length}>
@@ -1153,76 +1237,65 @@ function App() {
           </div>
         )}
         {dashboard ? (
-          <div className="dashboard">
-            <div className="section-heading">
-              <h2>Your boards</h2>
-              <span>Room to think. Space to create.</span>
-            </div>
-            <div className="board-grid">
-              {boards
-                .filter(
-                  (b) =>
-                    b.project_id === project &&
-                    (matches(b.title, b.description, query) ||
-                      cards.some(
-                        (c) =>
-                          c.board_id === b.id &&
-                          matches(c.title, c.content, query),
-                      )),
-                )
-                .map((b, i) => (
-                  <button
-                    className="board-tile"
-                    key={b.id}
-                    onClick={() => {
-                      setBoard(b.id);
-                      setDashboard(false);
-                    }}
-                  >
-                    <div className={`board-cover cover-${i % 3}`}>
-                      <div className="mini-note">
-                        {i === 0
-                          ? "Let wonder lead."
-                          : i === 1
-                            ? "Meet the characters."
-                            : "Follow the feeling."}
-                      </div>
-                      <div className="mini-photo" />
-                      <div className="mini-lines">
-                        ━━━━
-                        <br />
-                        ━━━━
-                        <br />
-                        ━━━
-                      </div>
-                    </div>
-                    <div className="tile-info">
-                      <h3>
-                        {b.title}
-                        <ArrowUpRight size={17} />
-                      </h3>
-                      <p>{b.description}</p>
-                      <small>
-                        {cards.filter((c) => c.board_id === b.id).length} cards{" "}
-                        <span>·</span> Private board
-                      </small>
-                    </div>
-                  </button>
-                ))}
-              {canEdit && (
-                <button
-                  className="empty-board"
-                  onClick={() => void createBoard()}
-                >
-                  <span>
-                    <Plus size={25} />
-                  </span>
-                  <strong>Make a little room</strong>
-                  <small>Create a new board</small>
-                </button>
-              )}
-            </div>
-          </div>
+          <ExplorerCanvas
+            key={workspaceHome ? "home" : project}
+            scope={workspaceHome ? "home" : project}
+            label={workspaceHome ? "Create a project" : "Create a board"}
+            onCreate={
+              workspaceHome
+                ? () => void newProject()
+                : canEdit
+                  ? () => void createBoard()
+                  : undefined
+            }
+            items={
+              workspaceHome
+                ? projects
+                    .filter(
+                      (p) =>
+                        matches(p.title, "", query) ||
+                        boards.some(
+                          (b) =>
+                            b.project_id === p.id &&
+                            matches(b.title, b.description, query),
+                        ),
+                    )
+                    .map((p) => ({
+                      id: p.id,
+                      title: p.title,
+                      detail: `${boards.filter((b) => b.project_id === p.id).length} boards`,
+                      kind: "project" as const,
+                    }))
+                : boards
+                    .filter(
+                      (b) =>
+                        b.project_id === project &&
+                        (matches(b.title, b.description, query) ||
+                          cards.some(
+                            (c) =>
+                              c.board_id === b.id &&
+                              matches(c.title, c.content, query),
+                          )),
+                    )
+                    .map((b) => ({
+                      id: b.id,
+                      title: b.title,
+                      detail: `${cards.filter((c) => c.board_id === b.id).length} cards`,
+                      kind: "board" as const,
+                    }))
+            }
+            onOpen={(id) => {
+              setQuery("");
+              if (workspaceHome) {
+                setProject(id);
+                setWorkspaceHome(false);
+                setDashboard(true);
+              } else {
+                setBoard(id);
+                setDashboard(false);
+              }
+            }}
+          />
         ) : (
           <div
             className={`canvas-wrap ${dropActive ? "drop-active" : ""}`}
