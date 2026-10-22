@@ -715,3 +715,22 @@ test("task insertion previews do not save until release and support exact gaps i
     card.getByRole("textbox", { name: "To-do 3", exact: true }),
   ).toHaveValue("First");
 });
+
+test("writes text notes directly on the canvas without a popup", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add text", exact: true }).click();
+  await expect(page.locator(".page-modal")).toHaveCount(0);
+  const text = page.getByRole("textbox", { name: "Note text", exact: true });
+  await text.fill("A thought written right here.\nAnother line.");
+  await text.press("Tab");
+  await expect(page.getByRole("status", { name: "Saving…" })).toHaveCount(0);
+  await expect
+    .poll(async () => page.evaluate(() => JSON.stringify(localStorage)))
+    .toContain("A thought written right here.");
+  await page.reload();
+  await expect(
+    page.getByRole("textbox", { name: "Note text", exact: true }),
+  ).toHaveValue("A thought written right here.\nAnother line.");
+});

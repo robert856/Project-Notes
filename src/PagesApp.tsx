@@ -35,6 +35,7 @@ import { db, url as projectUrl } from "./api";
 import { PageCanvas } from "./PageCanvas";
 import { PageEditor } from "./PageEditor";
 import { InlineChecklist } from "./InlineChecklist";
+import { InlineText } from "./InlineText";
 import { ArrangePanel, type Arrangement } from "./ArrangePanel";
 import { alignCards, distributeCards } from "./alignment";
 import {
@@ -324,7 +325,8 @@ export default function PagesApp() {
       commit(change);
       return change.after[0];
     });
-    if (!position && kind !== "page" && kind !== "checklist") setEditor(p);
+    if (!position && kind !== "page" && kind !== "checklist" && kind !== "text")
+      setEditor(p);
   };
   const upload = async (files: File[], position?: { x: number; y: number }) => {
     if (!canCreate) {
@@ -747,40 +749,52 @@ export default function PagesApp() {
             </button>
           </div>
         </section>
-        {active && (active.content || active.kind === "checklist") && (
-          <section className="page-own-content">
-            {active.kind === "checklist" ? (
-              <InlineChecklist
-                key={active.id}
-                page={active}
-                editable={canEdit(active)}
-                onSave={(content, version) =>
-                  save([{ id: active.id, version, content }])
-                }
-              />
-            ) : active.kind === "image" && safeUrl(active.content) ? (
-              <img src={active.content} alt={active.title} />
-            ) : active.kind === "file" ? (
-              <button
-                className="button"
-                onClick={() => action(() => download(active))}
-              >
-                <DownloadIcon />
-                Open attachment
-              </button>
-            ) : active.kind === "link" ? (
-              <a
-                href={safeUrl(active.content) || undefined}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {active.content}
-              </a>
-            ) : (
-              <Markdown>{active.content}</Markdown>
-            )}
-          </section>
-        )}
+        {active &&
+          (active.content ||
+            active.kind === "checklist" ||
+            active.kind === "text") && (
+            <section className="page-own-content">
+              {active.kind === "text" ? (
+                <InlineText
+                  key={active.id}
+                  page={active}
+                  editable={canEdit(active)}
+                  onSave={(content, version) =>
+                    save([{ id: active.id, version, content }])
+                  }
+                />
+              ) : active.kind === "checklist" ? (
+                <InlineChecklist
+                  key={active.id}
+                  page={active}
+                  editable={canEdit(active)}
+                  onSave={(content, version) =>
+                    save([{ id: active.id, version, content }])
+                  }
+                />
+              ) : active.kind === "image" && safeUrl(active.content) ? (
+                <img src={active.content} alt={active.title} />
+              ) : active.kind === "file" ? (
+                <button
+                  className="button"
+                  onClick={() => action(() => download(active))}
+                >
+                  <DownloadIcon />
+                  Open attachment
+                </button>
+              ) : active.kind === "link" ? (
+                <a
+                  href={safeUrl(active.content) || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {active.content}
+                </a>
+              ) : (
+                <Markdown>{active.content}</Markdown>
+              )}
+            </section>
+          )}
         {loading ? (
           <div className="pages-loading">Loading pages…</div>
         ) : (

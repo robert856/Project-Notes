@@ -690,3 +690,28 @@ html.task-pointer-drag * {
   cursor: grabbing !important;
   user-select: none !important;
 }
+
+.inline-text textarea {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.65;
+}
+.inline-text textarea::placeholder {
+  color: #a4ac9d;
+}
+.inline-text small {
+  display: block;
+  color: #78856c;
+  font-size: 11px;
+}
+.inline-text [role="alert"] {
+  color: #a54e41;
+}

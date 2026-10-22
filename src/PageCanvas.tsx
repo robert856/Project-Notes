@@ -19,6 +19,7 @@ import { safeUrl } from "./model";
 import { youtubeId, acceptedDropEffect } from "./drops";
 import { fileUrl } from "./pageRepository";
 import { InlineChecklist } from "./InlineChecklist";
+import { InlineText } from "./InlineText";
 function PageNode({ data, selected }: NodeProps) {
   const p = data.page as Page,
     [renaming, setRenaming] = useState(false),
@@ -149,6 +150,19 @@ function PageNode({ data, selected }: NodeProps) {
             <Download size={19} />
             {p.content ? "Open attachment" : "No attachment yet"}
           </button>
+        ) : p.kind === "text" ? (
+          <InlineText
+            page={p}
+            editable={!!data.editable}
+            onSave={(content, version) =>
+              (
+                data.saveTasks as (
+                  content: string,
+                  version: number,
+                ) => Promise<void>
+              )(content, version)
+            }
+          />
         ) : p.kind === "checklist" ? (
           <InlineChecklist
             page={p}
