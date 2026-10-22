@@ -260,7 +260,7 @@ function App() {
     () => setArrangeOpen(false),
     [project, board, dashboard, workspaceHome],
   );
-  const canEdit = !db || role === "owner" || role === "editor";
+  const canEdit = workspaceHome || !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
   const undoHistory = useWorkspaceUndo(
@@ -359,7 +359,7 @@ function App() {
     const selected = p.data.find((v) => v.id === project)?.id || p.data[0].id;
     setProject(selected);
     const [b, c, m] = await Promise.all([
-      db.from("boards").select("*").eq("project_id", selected),
+      db.from("boards").select("*"),
       db.from("cards").select("*"),
       db
         .from("project_members")
@@ -436,16 +436,65 @@ function App() {
   const projectCanvas = boards.find(
     (b) => b.project_id === project && b.is_project_canvas,
   );
-  const contentBoardId =
-    dashboard && !workspaceHome ? projectCanvas?.id : board;
+  const homeProject = projects.find(
+    (p) => p.home_owner === (db ? user : "local"),
+  );
+  const homeCanvas = boards.find(
+    (b) => b.project_id === homeProject?.id && b.is_project_canvas,
+  );
+  const contentBoardId = workspaceHome
+    ? homeCanvas?.id
+    : dashboard
+      ? projectCanvas?.id
+      : board;
   const visible = cards.filter(
     (c) => c.board_id === contentBoardId && matches(c.title, c.content, query),
   );
-  const ensureContentBoard = async () => {
-    if (!dashboard) return board;
-    if (workspaceHome)
-      throw new Error("Open a project to add notes, links, or files.");
-    if (projectCanvas) return projectCanvas.id;
+  const ensureHomeCanvas = async (): Promise<Board> => {
+    if (homeCanvas) return homeCanvas;
+    let container: Board;
+    if (db) {
+      const { data, error } = await db.rpc("get_home_canvas");
+      if (error)
+        throw new Error(
+          "Home canvas setup requires Supabase migration 005. " + error.message,
+        );
+      container = (Array.isArray(data) ? data[0] : data) as Board;
+      if (!container?.id) throw new Error("Could not load Home canvas");
+    } else
+      container = {
+        id: crypto.randomUUID(),
+        project_id: homeProject?.id || crypto.randomUUID(),
+        title: "Home canvas",
+        description: "",
+        is_project_canvas: true,
+      };
+    setProjects((previous) =>
+      previous.some((p) => p.id === container.project_id)
+        ? previous
+        : [
+            ...previous,
+            {
+              id: container.project_id,
+              title: "Home",
+              home_owner: user || "local",
+            },
+          ],
+    );
+    setBoards((previous) =>
+      previous.some((b) => b.id === container.id)
+        ? previous
+        : [...previous, container],
+    );
+    return container;
+  };
+  const ensureContentBoard = async (): Promise<Board> => {
+    if (workspaceHome) return ensureHomeCanvas();
+    if (!dashboard) {
+      if (!current) throw new Error("Open a canvas first.");
+      return current;
+    }
+    if (projectCanvas) return projectCanvas;
     let container: Board;
     if (db) {
       const { data, error } = await db.rpc("get_project_canvas", {
@@ -453,12 +502,11 @@ function App() {
       });
       if (error)
         throw new Error(
-          "Project canvas setup is missing. Apply migration 003 in Supabase. " +
+          "Apply Supabase migration 003 for the project canvas. " +
             error.message,
         );
       container = (Array.isArray(data) ? data[0] : data) as Board;
-      if (!container?.id)
-        throw new Error("The project canvas could not be loaded.");
+      if (!container?.id) throw new Error("Could not load project canvas");
     } else
       container = {
         id: crypto.randomUUID(),
@@ -472,7 +520,7 @@ function App() {
         ? previous
         : [...previous, container],
     );
-    return container.id;
+    return container;
   };
   const makeNodes = () =>
     visible.map((c) => ({
@@ -505,7 +553,7 @@ function App() {
       notify("You need editor access to add files to this note.");
       return;
     }
-    if ((!dashboard && !current) || workspaceHome || !flow) {
+    if ((!dashboard && !current) || !flow) {
       notify("Open a note before dropping files.");
       return;
     }
@@ -518,6 +566,10 @@ function App() {
       y: event.clientY,
     });
     const tool = event.dataTransfer.getData("application/x-stillroom-tool");
+    if (tool === "board") {
+      await createBoard(undefined, point);
+      return;
+    }
     if (
       ["text", "link", "checklist", "image", "file", "group"].includes(tool)
     ) {
@@ -546,7 +598,9 @@ function App() {
     let added = 0;
     const rejected: string[] = [];
     try {
-      const targetBoard = await ensureContentBoard();
+      const container = await ensureContentBoard();
+      const targetBoard = container.id;
+      const targetProject = container.project_id;
       const items: (File | string)[] = files.length ? files : [url!];
       for (const [index, item] of items.entries()) {
         const id = crypto.randomUUID();
@@ -574,7 +628,7 @@ function App() {
           }
           c.title = item.name;
           c.content = db
-            ? `${project}/${id}/${item.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`
+            ? `${targetProject}/${id}/${item.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`
             : `local:${id}`;
           if (db) {
             const { error } = await db.storage
@@ -593,7 +647,7 @@ function App() {
           }
           if (uploadedPath && typeof item !== "string") {
             const attachment = await db.from("attachments").insert({
-              project_id: project,
+              project_id: targetProject,
               card_id: id,
               path: uploadedPath,
               name: item.name,
@@ -731,13 +785,9 @@ function App() {
     setNodes((nds) => applyNodeChanges(changes, nds));
   const add = async (kind: Kind, position?: { x: number; y: number }) => {
     if (!canEdit) return;
-    if (workspaceHome) {
-      notify("Open a project to add notes.");
-      return;
-    }
     let targetBoard: string;
     try {
-      targetBoard = await ensureContentBoard();
+      targetBoard = (await ensureContentBoard()).id;
     } catch (error) {
       notify((error as Error).message);
       return;
@@ -853,18 +903,33 @@ function App() {
       setDeleting(false);
     }
   };
-  const createBoard = async (source?: Board) => {
-    setWorkspaceHome(false);
-    if (!projects.some((p) => p.id === project)) {
+  const createBoard = async (
+    source?: Board,
+    position?: { x: number; y: number },
+  ) => {
+    let targetProject = project;
+    if (workspaceHome) {
+      try {
+        targetProject = (await ensureHomeCanvas()).project_id;
+      } catch (error) {
+        notify((error as Error).message);
+        return;
+      }
+    }
+    if (!workspaceHome && !projects.some((p) => p.id === project)) {
       notify("Create a project first using the + beside Projects.");
       return;
     }
 
-    const title = source ? source.title + " — copy" : prompt("Note name");
+    const title = source
+      ? source.title + " — copy"
+      : position
+        ? "Untitled board"
+        : prompt("Board name");
     if (!title?.trim()) return;
     const b: Board = {
       id: crypto.randomUUID(),
-      project_id: project,
+      project_id: targetProject,
       title: title.trim(),
       description: source?.description || "Make room for a new idea.",
     };
@@ -873,6 +938,16 @@ function App() {
       if (error) {
         notify(error.message);
         return;
+      }
+    }
+    if (position) {
+      const key = `stillroom-layout:${workspaceHome ? "home" : targetProject}`;
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) || "{}");
+        saved[b.id] = position;
+        localStorage.setItem(key, JSON.stringify(saved));
+      } catch {
+        notify("Board created, but its canvas position could not be saved.");
       }
     }
     setBoards((v) => [...v, b]);
@@ -897,8 +972,14 @@ function App() {
       }
       setCards((v) => [...v, ...copies]);
     }
-    setBoard(b.id);
-    setDashboard(false);
+    if (position) {
+      setDashboard(true);
+    } else {
+      setWorkspaceHome(false);
+      setProject(targetProject);
+      setBoard(b.id);
+      setDashboard(false);
+    }
   };
   const renameProject = async (id: string, title: string) => {
     const previous = projects.find((p) => p.id === id);
@@ -1047,8 +1128,8 @@ function App() {
               className="rail-tool"
               key={kind}
               title={`Add ${kind}`}
-              disabled={workspaceHome || !canEdit}
-              draggable={!workspaceHome && canEdit}
+              disabled={!canEdit}
+              draggable={canEdit}
               onDragStart={(event) => {
                 event.dataTransfer.setData(
                   "application/x-stillroom-tool",
@@ -1068,16 +1149,31 @@ function App() {
         })}
         <button
           className="rail-tool"
-          title={workspaceHome ? "Create project" : "New note"}
-          aria-label={workspaceHome ? "Create project" : "New note"}
-          disabled={!workspaceHome && !canEdit}
-          onClick={() =>
-            workspaceHome ? void newProject() : void createBoard()
-          }
+          title="Add board"
+          aria-label="Add board"
+          disabled={!canEdit}
+          draggable={canEdit}
+          onDragStart={(event) => {
+            event.dataTransfer.setData("application/x-stillroom-tool", "board");
+            event.dataTransfer.effectAllowed = "copy";
+            setArrangeOpen(false);
+          }}
+          onClick={() => void createBoard()}
         >
           <Folder size={21} strokeWidth={1.5} />
-          <span>{workspaceHome ? "Project" : "Note"}</span>
+          <span>Board</span>
         </button>
+        {workspaceHome && (
+          <button
+            className="rail-tool"
+            title="Create project"
+            aria-label="Create project"
+            onClick={() => void newProject()}
+          >
+            <Plus size={21} strokeWidth={1.5} />
+            <span>Project</span>
+          </button>
+        )}
         <div className="rail-divider" />
         <button
           className={`rail-tool ${arrangeOpen ? "active" : ""}`}
@@ -1165,7 +1261,9 @@ function App() {
           }}
         >
           <LayoutGrid size={17} /> All projects
-          <span className="count">{projects.length}</span>
+          <span className="count">
+            {projects.filter((p) => !p.home_owner).length}
+          </span>
         </button>
         <button
           className="nav-item"
@@ -1185,52 +1283,56 @@ function App() {
             <Plus size={15} />
           </button>
         </div>
-        {projects.map((p) => (
-          <div key={p.id}>
-            <button
-              className={`project-nav ${project === p.id ? "selected" : ""}`}
-              onClick={() => {
-                setProject(p.id);
-                setWorkspaceHome(false);
-                setDashboard(true);
-                setSidebar(false);
-              }}
-            >
-              <span className="project-avatar">
-                <Moon size={16} />
-              </span>
-              <span>{p.title}</span>
-              <ChevronDown size={14} />
-            </button>
-            {project === p.id && (
-              <div className="board-nav">
-                {boards
-                  .filter(
-                    (b) => b.project_id === project && !b.is_project_canvas,
-                  )
-                  .map((b) => (
-                    <button
-                      key={b.id}
-                      className={board === b.id && !dashboard ? "selected" : ""}
-                      onClick={() => {
-                        setBoard(b.id);
-                        setDashboard(false);
-                        setSidebar(false);
-                      }}
-                    >
-                      <span className="board-dot" />
-                      {b.title}
+        {projects
+          .filter((p) => !p.home_owner)
+          .map((p) => (
+            <div key={p.id}>
+              <button
+                className={`project-nav ${project === p.id ? "selected" : ""}`}
+                onClick={() => {
+                  setProject(p.id);
+                  setWorkspaceHome(false);
+                  setDashboard(true);
+                  setSidebar(false);
+                }}
+              >
+                <span className="project-avatar">
+                  <Moon size={16} />
+                </span>
+                <span>{p.title}</span>
+                <ChevronDown size={14} />
+              </button>
+              {project === p.id && (
+                <div className="board-nav">
+                  {boards
+                    .filter(
+                      (b) => b.project_id === project && !b.is_project_canvas,
+                    )
+                    .map((b) => (
+                      <button
+                        key={b.id}
+                        className={
+                          board === b.id && !dashboard ? "selected" : ""
+                        }
+                        onClick={() => {
+                          setBoard(b.id);
+                          setDashboard(false);
+                          setSidebar(false);
+                        }}
+                      >
+                        <span className="board-dot" />
+                        {b.title}
+                      </button>
+                    ))}
+                  {canEdit && (
+                    <button onClick={() => void createBoard()}>
+                      <Plus size={14} /> New note
                     </button>
-                  ))}
-                {canEdit && (
-                  <button onClick={() => void createBoard()}>
-                    <Plus size={14} /> New note
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         <div className="sidebar-bottom">
           <div className="quiet-box">
             <span>Good ideas need a little space.</span>
@@ -1416,31 +1518,34 @@ function App() {
             onArrangeClose={() => setArrangeOpen(false)}
             onError={notify}
             onRename={
-              workspaceHome ? renameProject : canEdit ? renameBoard : undefined
+              canEdit
+                ? async (id, title) =>
+                    projects.some((p) => p.id === id)
+                      ? renameProject(id, title)
+                      : renameBoard(id, title)
+                : undefined
             }
-            onDelete={
-              workspaceHome
-                ? deleteProjects
-                : async (ids) => {
-                    const containerIds = ids.filter((id) =>
-                      boards.some((b) => b.id === id && !b.is_project_canvas),
-                    );
-                    const content = cards.filter(
-                      (c) =>
-                        ids.includes(c.id) &&
-                        !containerIds.includes(c.board_id),
-                    );
-                    if (containerIds.length) await deleteBoards(containerIds);
-                    if (content.length) await deleteNotes(content);
-                  }
-            }
-            contentNodes={workspaceHome ? [] : nodes}
+            onDelete={async (ids) => {
+              const projectIds = ids.filter((id) =>
+                projects.some((p) => p.id === id && !p.home_owner),
+              );
+              const containerIds = ids.filter((id) =>
+                boards.some((b) => b.id === id && !b.is_project_canvas),
+              );
+              const content = cards.filter(
+                (c) => ids.includes(c.id) && !containerIds.includes(c.board_id),
+              );
+              if (projectIds.length) await deleteProjects(projectIds);
+              if (containerIds.length) await deleteBoards(containerIds);
+              if (content.length) await deleteNotes(content);
+            }}
+            contentNodes={nodes}
             contentTypes={nodeTypes}
             onInit={setFlow}
             onContentChange={onChanges}
             onContentMove={savePositions}
-            onDrop={workspaceHome ? undefined : dropOnCanvas}
-            canDrop={!workspaceHome && canEdit}
+            onDrop={dropOnCanvas}
+            canDrop={canEdit}
             dropping={dropping}
             canDelete={workspaceHome || canEdit}
             recordUndo={undoHistory.recordExternal}
@@ -1454,22 +1559,38 @@ function App() {
             }
             items={
               workspaceHome
-                ? projects
-                    .filter(
-                      (p) =>
-                        matches(p.title, "", query) ||
-                        boards.some(
-                          (b) =>
-                            b.project_id === p.id &&
-                            matches(b.title, b.description, query),
-                        ),
-                    )
-                    .map((p) => ({
-                      id: p.id,
-                      title: p.title,
-                      detail: `${boards.filter((b) => b.project_id === p.id && !b.is_project_canvas).length} notes`,
-                      kind: "project" as const,
-                    }))
+                ? [
+                    ...projects
+                      .filter((p) => !p.home_owner)
+                      .filter(
+                        (p) =>
+                          matches(p.title, "", query) ||
+                          boards.some(
+                            (b) =>
+                              b.project_id === p.id &&
+                              matches(b.title, b.description, query),
+                          ),
+                      )
+                      .map((p) => ({
+                        id: p.id,
+                        title: p.title,
+                        detail: `${boards.filter((b) => b.project_id === p.id && !b.is_project_canvas).length} notes`,
+                        kind: "project" as const,
+                      })),
+                    ...boards
+                      .filter(
+                        (b) =>
+                          b.project_id === homeProject?.id &&
+                          !b.is_project_canvas &&
+                          matches(b.title, b.description, query),
+                      )
+                      .map((b) => ({
+                        id: b.id,
+                        title: b.title,
+                        detail: `${cards.filter((c) => c.board_id === b.id).length} notes`,
+                        kind: "board" as const,
+                      })),
+                  ]
                 : boards
                     .filter(
                       (b) =>
@@ -1491,11 +1612,14 @@ function App() {
             }
             onOpen={(id) => {
               setQuery("");
-              if (workspaceHome) {
+              if (workspaceHome && projects.some((p) => p.id === id)) {
                 setProject(id);
                 setWorkspaceHome(false);
                 setDashboard(true);
               } else {
+                const target = boards.find((b) => b.id === id);
+                if (target) setProject(target.project_id);
+                setWorkspaceHome(false);
                 setBoard(id);
                 setDashboard(false);
               }
@@ -1689,14 +1813,16 @@ function App() {
                     const file = e.target.files?.[0];
                     if (!file || !db) return;
                     setBusy(true);
-                    const path = `${project}/${crypto.randomUUID()}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+                    const path = `${boards.find((b) => b.id === editing.board_id)?.project_id || project}/${crypto.randomUUID()}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
                     const up = await db.storage
                       .from("attachments")
                       .upload(path, file);
                     if (up.error) notify(up.error.message);
                     else {
                       const record = await db.from("attachments").insert({
-                        project_id: project,
+                        project_id:
+                          boards.find((b) => b.id === editing.board_id)
+                            ?.project_id || project,
                         card_id: editing.id,
                         path,
                         name: file.name,

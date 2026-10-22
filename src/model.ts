@@ -20,6 +20,7 @@ export interface Board {
   description: string;
 }
 export interface Project {
+  home_owner?: string | null;
   id: string;
   title: string;
 }

@@ -19,6 +19,7 @@ beforeAll(async () => {
     "002_reversible_delete.sql",
     "003_project_canvas.sql",
     "004_project_title_undo.sql",
+    "005_home_canvas.sql",
   ])
     await pg.exec(
       await readFile(
@@ -26,7 +27,7 @@ beforeAll(async () => {
         "utf8",
       ),
     );
-  await pg.exec(`grant usage on schema public,auth,storage to authenticated;grant select,insert,update,delete on all tables in schema public to authenticated;revoke update on public.cards from authenticated;grant select on storage.objects to authenticated;
+  await pg.exec(`grant usage on schema public,auth,storage to authenticated;grant select,insert,update,delete on all tables in schema public to authenticated;revoke update on public.cards from authenticated;revoke update on public.projects from authenticated;grant update(title) on public.projects to authenticated;grant select on storage.objects to authenticated;
  insert into public.projects(id,title) values('${project}','Test project');insert into public.project_members values('${project}','${owner}','owner');
  insert into public.boards(id,project_id,title) values('${board}','${project}','Test note');
  insert into public.cards(id,board_id,title,kind) values('${card}','${board}','First note','text');
@@ -224,4 +225,34 @@ it("undoes an owner project rename and rejects stale project-title undo", async 
       )
     ).rows[0].title,
   ).toBe("A newer project title");
+});
+
+it("creates separate Home canvases for different users and protects Home ownership", async () => {
+  const result = await pg.query<{ canvas: { id: string; project_id: string } }>(
+    "select to_jsonb(public.get_home_canvas()) as canvas",
+  );
+  const own = result.rows[0].canvas;
+  const again = await pg.query<{ canvas: { id: string } }>(
+    "select to_jsonb(public.get_home_canvas()) as canvas",
+  );
+  expect(again.rows[0].canvas.id).toBe(own.id);
+  await expect(
+    pg.query("update public.projects set home_owner=$1 where id=$2", [
+      other,
+      own.project_id,
+    ]),
+  ).rejects.toThrow("permission denied");
+  await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
+    other,
+  ]);
+  const second = await pg.query<{ canvas: { id: string } }>(
+    "select to_jsonb(public.get_home_canvas()) as canvas",
+  );
+  expect(second.rows[0].canvas.id).not.toBe(own.id);
+  expect(
+    (await pg.query("select id from public.boards where id=$1", [own.id])).rows,
+  ).toHaveLength(0);
+  await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
+    owner,
+  ]);
 });

@@ -1145,3 +1145,83 @@ test("Home project titles rename inline, persist and support cancel and Undo", a
     }),
   ).toBeVisible();
 });
+
+test("drags both Note and Board tools directly onto Home without opening a project", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  const canvas = page.locator(".explorer-canvas");
+  const noteTool = page.getByTitle("Add text", { exact: true });
+  await expect(noteTool).toBeEnabled();
+  await noteTool.dragTo(canvas, { targetPosition: { x: 500, y: 250 } });
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
+    "Untitled note",
+  );
+  await page.getByLabel("Title", { exact: true }).fill("Home note");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Home note", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  const boardTool = page.getByRole("button", {
+    name: "Add board",
+    exact: true,
+  });
+  await expect(boardTool).toHaveAttribute("draggable", "true");
+  await boardTool.dragTo(canvas, { targetPosition: { x: 850, y: 350 } });
+  await expect(
+    page.getByRole("button", { name: "Select Untitled board", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Home note", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Select Untitled board", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Select Untitled board", exact: true })
+    .dblclick();
+  await expect(
+    page.getByRole("heading", { name: "Untitled board", exact: true }),
+  ).toBeVisible();
+});
+
+test("drags a Board tool onto a project canvas at the drop location", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", {
+      name: "Select True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .dblclick();
+  const canvas = page.locator(".explorer-canvas");
+  const rect = await canvas.boundingBox();
+  if (!rect) throw Error("Missing canvas");
+  await page
+    .getByRole("button", { name: "Add board", exact: true })
+    .dragTo(canvas, { targetPosition: { x: 700, y: 360 } });
+  const node = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "Untitled board" });
+  await expect(node).toBeVisible();
+  const placed = await node.boundingBox();
+  expect(placed!.x).toBeCloseTo(rect.x + 700, 0);
+  expect(placed!.y).toBeCloseTo(rect.y + 360, 0);
+  await expect(
+    page.getByRole("heading", {
+      name: "True Myth: Addison’s Midnight Walk",
+      exact: true,
+    }),
+  ).toBeVisible();
+});
