@@ -324,7 +324,7 @@ test("PDF drop is captured over cards, survives refresh, and preserves its bytes
     return d;
   });
   await target.dispatchEvent("dragenter", { dataTransfer: transfer });
-  await expect(page.getByText("Drop it here", { exact: true })).toBeVisible();
+  await expect(page.getByText("Drop it here", { exact: true })).toHaveCount(0);
   await target.dispatchEvent("drop", {
     dataTransfer: transfer,
     clientX: 750,
@@ -1224,4 +1224,67 @@ test("drags a Board tool onto a project canvas at the drop location", async ({
       exact: true,
     }),
   ).toBeVisible();
+});
+
+test("canvas stays visually unchanged while a toolbar board is dragged across it", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".explorer-tile")).toHaveCount(1);
+  const canvas = page.locator(".explorer-canvas");
+  const before = await canvas.evaluate((el) => ({
+    text: el.textContent,
+    classes: el.className,
+    bounds: JSON.stringify(el.getBoundingClientRect().toJSON()),
+  }));
+  const transfer = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.setData("application/x-stillroom-tool", "board");
+    d.effectAllowed = "copy";
+    return d;
+  });
+  for (let i = 0; i < 6; i++) {
+    const target = i % 2 ? canvas : page.locator(".explorer-open").first();
+    await target.dispatchEvent("dragenter", {
+      dataTransfer: transfer,
+      clientX: 500 + i * 10,
+      clientY: 350,
+    });
+    await target.dispatchEvent("dragover", {
+      dataTransfer: transfer,
+      clientX: 500 + i * 10,
+      clientY: 350,
+    });
+    await target.dispatchEvent("dragleave", {
+      dataTransfer: transfer,
+      clientX: 510 + i * 10,
+      clientY: 350,
+    });
+  }
+  const during = await canvas.evaluate((el) => ({
+    text: el.textContent,
+    classes: el.className,
+    bounds: JSON.stringify(el.getBoundingClientRect().toJSON()),
+  }));
+  expect(during).toEqual(before);
+  await expect(page.locator(".drop-overlay")).toHaveCount(0);
+  await expect(page.getByText("Drop it here", { exact: true })).toHaveCount(0);
+  expect(
+    await page.evaluate(() =>
+      document.documentElement.classList.contains("canvas-dragging"),
+    ),
+  ).toBe(true);
+  await canvas.dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: 800,
+    clientY: 450,
+  });
+  await expect(
+    page.getByRole("button", { name: "Select Untitled board", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      document.documentElement.classList.contains("canvas-dragging"),
+    ),
+  ).toBe(false);
 });

@@ -298,6 +298,49 @@ function App() {
     return () => document.removeEventListener("keydown", keyboard);
   }, [undoHistory]);
 
+  // Invisible hit-testing adjustment only: embedded players must not swallow drops.
+  // No drag-over React state, overlays, text, colors, or layout changes.
+  useEffect(() => {
+    const mark = (event: DragEvent) => {
+      if (
+        Array.from(event.dataTransfer?.types || []).some((type) =>
+          [
+            "Files",
+            "text/uri-list",
+            "text/plain",
+            "application/x-stillroom-tool",
+          ].includes(type),
+        )
+      )
+        document.documentElement.classList.add("canvas-dragging");
+    };
+    const clear = () =>
+      document.documentElement.classList.remove("canvas-dragging");
+    const leave = (event: DragEvent) => {
+      if (
+        event.clientX <= 0 ||
+        event.clientY <= 0 ||
+        event.clientX >= window.innerWidth ||
+        event.clientY >= window.innerHeight
+      )
+        clear();
+    };
+    window.addEventListener("dragenter", mark, true);
+    window.addEventListener("dragover", mark, true);
+    window.addEventListener("drop", clear, true);
+    window.addEventListener("dragend", clear, true);
+    window.addEventListener("blur", clear);
+    window.addEventListener("dragleave", leave, true);
+    return () => {
+      window.removeEventListener("dragenter", mark, true);
+      window.removeEventListener("dragover", mark, true);
+      window.removeEventListener("drop", clear, true);
+      window.removeEventListener("dragend", clear, true);
+      window.removeEventListener("blur", clear);
+      window.removeEventListener("dragleave", leave, true);
+      clear();
+    };
+  }, []);
   // Capture native drops before any canvas/card handlers or browser default navigation.
   useEffect(() => {
     const protectPage = (event: DragEvent) => {
@@ -543,12 +586,10 @@ function App() {
     ReactFlowInstance,
     "screenToFlowPosition"
   > | null>(null);
-  const [dropActive, setDropActive] = useState(false);
   const [dropping, setDropping] = useState(false);
   const dropOnCanvas = async (event: React.DragEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    setDropActive(false);
     if (!canEdit) {
       notify("You need editor access to add files to this note.");
       return;
@@ -1627,7 +1668,7 @@ function App() {
           />
         ) : (
           <div
-            className={`canvas-wrap ${dropActive ? "drop-active" : ""}`}
+            className="canvas-wrap"
             onPointerDownCapture={(event) => {
               if (arranging) {
                 event.preventDefault();
@@ -1636,36 +1677,15 @@ function App() {
             }}
             onDragEnterCapture={(event) => {
               event.preventDefault();
-              if (canEdit) setDropActive(true);
             }}
             onDragOverCapture={(event) => {
               event.preventDefault();
               event.dataTransfer.dropEffect = canEdit
                 ? acceptedDropEffect(event.dataTransfer.effectAllowed)
                 : "none";
-              if (canEdit) setDropActive(true);
-            }}
-            onDragLeave={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              if (
-                event.clientX <= rect.left ||
-                event.clientX >= rect.right ||
-                event.clientY <= rect.top ||
-                event.clientY >= rect.bottom
-              )
-                setDropActive(false);
             }}
             onDropCapture={(event) => void dropOnCanvas(event)}
           >
-            {(dropActive || dropping) && (
-              <div className="drop-overlay" role="status">
-                <Plus size={28} />
-                <strong>
-                  {dropping ? "Adding your notes…" : "Drop it here"}
-                </strong>
-                <span>Web links, YouTube videos, and files up to 20 MB</span>
-              </div>
-            )}
             <ReactFlow
               onInit={setFlow}
               nodes={nodes}
@@ -1716,7 +1736,7 @@ function App() {
             </ReactFlow>
             <div className="canvas-caption">
               <span className="tiny-star">✳</span> A little space for a big
-              story. Drag links & files here.
+              story.
             </div>
             <div className="board-options">
               {canEdit && current && (

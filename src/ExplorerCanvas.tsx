@@ -161,7 +161,6 @@ export function ExplorerCanvas({
   onRename?: (id: string, title: string) => Promise<boolean>;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [dragActive, setDragActive] = useState(false);
   const openNode = (node: Node) => {
     if (node.type === "tile") onOpen(node.id);
     else (node.data.edit as (card: unknown) => void)(node.data.card);
@@ -318,12 +317,11 @@ export function ExplorerCanvas({
   }, [items, scope, layoutRevision, contentNodes]);
   return (
     <div
-      className={`explorer-canvas ${dragActive ? "drop-active" : ""}`}
+      className="explorer-canvas"
       data-drop-enabled={canDrop ? "true" : "false"}
       onDragEnterCapture={(event) => {
         if (canDrop) {
           event.preventDefault();
-          setDragActive(true);
         }
       }}
       onDragOverCapture={(event) => {
@@ -331,31 +329,12 @@ export function ExplorerCanvas({
         event.dataTransfer.dropEffect = canDrop
           ? acceptedDropEffect(event.dataTransfer.effectAllowed)
           : "none";
-        if (canDrop) setDragActive(true);
-      }}
-      onDragLeave={(event) => {
-        const r = event.currentTarget.getBoundingClientRect();
-        if (
-          event.clientX <= r.left ||
-          event.clientX >= r.right ||
-          event.clientY <= r.top ||
-          event.clientY >= r.bottom
-        )
-          setDragActive(false);
       }}
       onDropCapture={(event) => {
         event.preventDefault();
-        setDragActive(false);
         if (canDrop && onDrop) void onDrop(event);
       }}
     >
-      {(dragActive || dropping) && (
-        <div className="drop-overlay" role="status">
-          <Plus size={28} />
-          <strong>{dropping ? "Adding your notes…" : "Drop it here"}</strong>
-          <span>Web links, YouTube videos, and files up to 20 MB</span>
-        </div>
-      )}
       <ReactFlow
         nodes={nodes}
         nodeTypes={{ ...nodeTypes, ...contentTypes }}
@@ -427,7 +406,7 @@ export function ExplorerCanvas({
           </button>
         </div>
       )}
-      {!items.length && !contentNodes.length && !dragActive && !dropping && (
+      {!items.length && !contentNodes.length && (
         <div className="explorer-empty">
           <Folder size={32} strokeWidth={1} />
           <h2>A little space to begin.</h2>
