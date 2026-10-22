@@ -66,3 +66,65 @@ test("dashboard, search and mobile navigation", async ({ page }) => {
     .fill("creatures");
   await expect(page.locator(".board-tile")).toHaveCount(1);
 });
+
+test("drops YouTube links and local files onto the canvas and preserves them", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const transfer = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.setData("text/uri-list", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    return d;
+  });
+  await page
+    .locator(".react-flow__pane")
+    .dispatchEvent("drop", {
+      dataTransfer: transfer,
+      clientX: 700,
+      clientY: 450,
+    });
+  const video = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "YouTube video" });
+  await expect(video).toBeVisible();
+  await expect(video.locator("iframe")).toHaveAttribute(
+    "src",
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+  );
+  const files = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(
+      new File(["a little inspiration"], "ideas.txt", { type: "text/plain" }),
+    );
+    return d;
+  });
+  await page
+    .locator(".react-flow__pane")
+    .dispatchEvent("drop", { dataTransfer: files, clientX: 800, clientY: 600 });
+  const file = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "ideas.txt" });
+  await expect(file).toBeVisible();
+  await page.reload();
+  await expect(file).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    file.getByRole("button", { name: "Download attachment" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("ideas.txt");
+  expect(
+    await page.evaluate(async () => {
+      return await new Promise((resolve) => {
+        const r = indexedDB.open("stillroom-files", 1);
+        r.onsuccess = () => {
+          const tx = r.result.transaction("files");
+          const get = tx.objectStore("files").getAll();
+          get.onsuccess = async () => {
+            resolve(await get.result[0].text());
+            r.result.close();
+          };
+        };
+      });
+    }),
+  ).toBe("a little inspiration");
+});

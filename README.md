@@ -10,7 +10,7 @@ npm run dev
 npm test
 npm run build
 ```
-Without environment variables, the app explicitly runs as a **local demo**. Cards, boards and projects are stored in this browser’s localStorage. This is not shared data or an authenticated workspace. Clearing browser storage removes demo edits. Connections are session-only. No account is needed for the demo.
+Without environment variables, the app explicitly runs as a **local demo**. Cards, boards and projects are stored in this browser’s localStorage. This is not shared data or an authenticated workspace. Clearing browser storage removes demo edits. Connections are session-only. Dropped files are kept in this browser’s IndexedDB, not on a shared server. Clearing site data removes those files. No account is needed for the demo.
 
 ## Connect Supabase
 1. Create a Supabase project in your own account. In the SQL editor run `supabase/migrations/001_initial.sql` once, or apply it with the Supabase CLI. Do not run it against an existing unrelated schema.
@@ -44,3 +44,8 @@ Movable and resizable cards, Markdown notes (raw HTML disabled), external images
 Group cards are visual headings, not parent containers; move related cards independently. Connections are intentionally session-only and are labeled as such when added. Rich text uses Markdown editing rather than a WYSIWYG toolbar. Image cards use external URLs; use file cards for private image attachments. Deleting cards/boards removes metadata but does not automatically remove stored blobs: plan a server-side orphan cleanup task before large-scale use. No realtime, chat or payments.
 
 Before production, execute two-user acceptance checks against your own Supabase project: outsider cannot select any project data or download files; viewer cannot mutate; editor can edit; only owner can invite; two browser sessions editing version 1 cause the second save to fail without replacing the first. Test private attachment download and auth redirects on the actual Pages URL. Local tests cannot establish those account-specific guarantees.
+
+## Drag content directly onto a board
+Drag a web link (including a YouTube video link) or files from your computer onto the canvas. New cards appear at the drop position, accounting for canvas zoom and pan. Multiple files create separate cards. YouTube watch, short, live, and share links create a video embed using youtube-nocookie.com; a normal link remains available if embedding is restricted by the video owner or browser. Drag the video title, thumbnail link, or browser address link rather than the playing video surface, which may not expose a URL to other sites.
+
+Files have a 20 MiB limit per file. In demo mode they persist in this browser’s IndexedDB and can be downloaded from their file cards; they are not shared or uploaded. In connected mode files use the private Supabase bucket and project-scoped attachment records. Viewers cannot add cards through drops. No external URL metadata scraping is performed.

@@ -1075,3 +1075,35 @@ h1 {
     font-size: 10px;
   }
 }
+.video-embed {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border: 0;
+  border-radius: 4px;
+  margin-bottom: 14px;
+  background: #e9ece1;
+  display: block;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 15;
+  pointer-events: none;
+  border: 2px dashed #7b9065;
+  border-radius: 12px;
+  background: #f4f7edee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: #64764e;
+}
+.drop-overlay strong {
+  font-size: 23px;
+}
+.drop-overlay span {
+  font-size: 12px;
+}
+
+.drop-active iframe { pointer-events: none; }

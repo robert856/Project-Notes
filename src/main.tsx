@@ -12,6 +12,7 @@ import {
   type NodeProps,
   type Node,
   type NodeChange,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import {
   ArrowUpRight,
@@ -43,6 +44,7 @@ import "@xyflow/react/dist/style.css";
 import "./style.css";
 import Markdown from "react-markdown";
 import { db, saveCard } from "./api";
+import { droppedUrl, youtubeId, storeLocalFile, readLocalFile } from "./drops";
 import {
   demoBoards,
   demoCards,
@@ -57,6 +59,7 @@ import {
 function CanvasCard({ data, selected }: NodeProps) {
   const c = data.card as Card;
   const edit = data.edit as (c: Card) => void;
+  const videoId = c.kind === "link" ? youtubeId(c.content) : null;
   const toggle = data.toggle as (c: Card, i: number) => void;
   return (
     <>
@@ -118,22 +121,35 @@ function CanvasCard({ data, selected }: NodeProps) {
             ))}
           </div>
         ) : c.kind === "link" ? (
-          <a
-            className="nodrag bookmark"
-            href={safeUrl(c.content) || undefined}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span>
-              <LinkIcon size={19} /> Open inspiration
-            </span>
-            <ArrowUpRight size={16} />
-            <small>
-              {safeUrl(c.content)
-                ? new URL(c.content).hostname
-                : "Add a valid URL"}
-            </small>
-          </a>
+          <>
+            {videoId && (
+              <iframe
+                className="nodrag nowheel video-embed"
+                src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+                title={`YouTube video: ${c.title}`}
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allow="encrypted-media; picture-in-picture; fullscreen"
+                allowFullScreen
+              />
+            )}
+            <a
+              className="nodrag bookmark"
+              href={safeUrl(c.content) || undefined}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span>
+                <LinkIcon size={19} /> Open inspiration
+              </span>
+              <ArrowUpRight size={16} />
+              <small>
+                {safeUrl(c.content)
+                  ? new URL(c.content).hostname
+                  : "Add a valid URL"}
+              </small>
+            </a>
+          </>
         ) : c.kind === "file" ? (
           <button
             className="nodrag file-button"
@@ -293,7 +309,17 @@ function App() {
   };
   const download = async (c: Card) => {
     if (!db) {
-      notify("Attachments require a connected Supabase project.");
+      try {
+        const blob = await readLocalFile(c.content);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = c.title;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) {
+        notify((error as Error).message);
+      }
       return;
     }
     const { data, error } = await db.storage
@@ -322,6 +348,104 @@ function App() {
       },
       draggable: canEdit,
     }));
+  const [flow, setFlow] = useState<ReactFlowInstance<
+    Node,
+    { id: string; source: string; target: string }
+  > | null>(null);
+  const [dropActive, setDropActive] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const dropOnCanvas = async (event: React.DragEvent) => {
+    event.preventDefault();
+    setDropActive(false);
+    if (!canEdit || !current || !flow || dropping) return;
+    const point = flow.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const files = Array.from(event.dataTransfer.files);
+    const url = droppedUrl(
+      event.dataTransfer.getData("text/uri-list"),
+      event.dataTransfer.getData("text/plain"),
+      event.dataTransfer.getData("text/html"),
+    );
+    if (!files.length && !url) {
+      notify("Drop a file or a web link onto the canvas.");
+      return;
+    }
+    setDropping(true);
+    try {
+      const items: (File | string)[] = files.length ? files : [url!];
+      for (const [index, item] of items.entries()) {
+        const id = crypto.randomUUID();
+        const c: Card = {
+          id,
+          board_id: board,
+          title: "",
+          content: "",
+          kind: typeof item === "string" ? "link" : "file",
+          x: point.x + index * 35,
+          y: point.y + index * 35,
+          width: 330,
+          height: typeof item === "string" && youtubeId(item) ? 340 : 190,
+          version: 1,
+          color: "white",
+        };
+        let uploadedPath: string | null = null;
+        if (typeof item === "string") {
+          c.title = youtubeId(item) ? "YouTube video" : new URL(item).hostname;
+          c.content = item;
+        } else {
+          if (item.size > 20 * 1024 * 1024) {
+            notify(`${item.name} exceeds the 20 MB file limit.`);
+            continue;
+          }
+          c.title = item.name;
+          c.content = db
+            ? `${project}/${id}/${item.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`
+            : `local:${id}`;
+          if (db) {
+            const { error } = await db.storage
+              .from("attachments")
+              .upload(c.content, item);
+            if (error) throw error;
+            uploadedPath = c.content;
+          } else await storeLocalFile(c.content, item);
+        }
+        if (db) {
+          const inserted = await db.from("cards").insert(c);
+          if (inserted.error) {
+            if (uploadedPath)
+              await db.storage.from("attachments").remove([uploadedPath]);
+            throw inserted.error;
+          }
+          if (uploadedPath && typeof item !== "string") {
+            const attachment = await db
+              .from("attachments")
+              .insert({
+                project_id: project,
+                card_id: id,
+                path: uploadedPath,
+                name: item.name,
+              });
+            if (attachment.error) {
+              await db.from("cards").delete().eq("id", id);
+              await db.storage.from("attachments").remove([uploadedPath]);
+              throw attachment.error;
+            }
+          }
+        }
+        setCards((previous) => [...previous, c]);
+      }
+      if (files.length && !db)
+        notify(
+          "Files saved in this browser only. Connect Supabase to share them.",
+        );
+    } catch (error) {
+      notify(`Drop could not be completed: ${(error as Error).message}`);
+    } finally {
+      setDropping(false);
+    }
+  };
   const [nodes, setNodes] = useState<Node[]>([]);
   useEffect(() => setNodes(makeNodes()), [cards, board, query, canEdit]);
   const onChanges = (changes: NodeChange[]) =>
@@ -795,8 +919,34 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className="canvas-wrap">
+          <div
+            className={`canvas-wrap ${dropActive ? "drop-active" : ""}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = canEdit ? "copy" : "none";
+              if (canEdit) setDropActive(true);
+            }}
+            onDragLeave={(event) => {
+              if (
+                !event.currentTarget.contains(
+                  event.relatedTarget as globalThis.Node,
+                )
+              )
+                setDropActive(false);
+            }}
+            onDrop={(event) => void dropOnCanvas(event)}
+          >
+            {(dropActive || dropping) && (
+              <div className="drop-overlay" role="status">
+                <Plus size={28} />
+                <strong>
+                  {dropping ? "Adding to your board…" : "Drop it here"}
+                </strong>
+                <span>Web links, YouTube videos, and files up to 20 MB</span>
+              </div>
+            )}
             <ReactFlow
+              onInit={setFlow}
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
@@ -841,7 +991,7 @@ function App() {
             </ReactFlow>
             <div className="canvas-caption">
               <span className="tiny-star">✳</span> A little space for a big
-              story.
+              story. Drag links & files here.
             </div>
             <div className="board-options">
               {canEdit && current && (
@@ -964,14 +1114,12 @@ function App() {
                       .upload(path, file);
                     if (up.error) notify(up.error.message);
                     else {
-                      const record = await db
-                        .from("attachments")
-                        .insert({
-                          project_id: project,
-                          card_id: editing.id,
-                          path,
-                          name: file.name,
-                        });
+                      const record = await db.from("attachments").insert({
+                        project_id: project,
+                        card_id: editing.id,
+                        path,
+                        name: file.name,
+                      });
                       if (record.error) {
                         await db.storage.from("attachments").remove([path]);
                         notify(record.error.message);
@@ -1061,13 +1209,11 @@ function App() {
                     : "Check your email for your sign-in link.",
                 );
               } else {
-                const { error } = await db
-                  .from("project_invites")
-                  .insert({
-                    project_id: project,
-                    email: email.trim().toLowerCase(),
-                    role: inviteRole,
-                  });
+                const { error } = await db.from("project_invites").insert({
+                  project_id: project,
+                  email: email.trim().toLowerCase(),
+                  role: inviteRole,
+                });
                 notify(
                   error
                     ? error.message
