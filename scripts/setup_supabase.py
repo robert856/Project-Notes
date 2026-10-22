@@ -131,7 +131,20 @@ def setup():
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
             output.write('\n'.join(summary)+'\n')
-    print('Custom email provider configured: ' + ('yes' if custom_smtp else 'no; built-in sender restrictions apply'))
+    print('::notice::Authentication redirect status: ' + ('production URL verified' if auth_ready else 'production URL not configured by this run') + '; custom SMTP: ' + ('configured' if custom_smtp else 'not configured; default sender restricted to project-team addresses'))
+    # Exercise the actual public API from Actions (the cloud sandbox may restrict this host).
+    for table in ('projects', 'project_members', 'boards', 'cards', 'attachments', 'project_invites'):
+        request = urllib.request.Request(f'https://{PROJECT_REF}.supabase.co/rest/v1/{table}?select=*&limit=1', headers={'apikey': key})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if json.load(response) != []:
+                    raise SetupError('Anonymous API unexpectedly exposed rows from ' + table)
+        except urllib.error.HTTPError as error:
+            if error.code not in (401, 403):
+                raise SetupError('Anonymous REST check failed for ' + table + ': HTTP ' + str(error.code)) from None
+        except urllib.error.URLError:
+            raise SetupError('Could not reach the project public REST API.') from None
+    print('::notice::Verified live anonymous API cannot read any of the six application tables.')
 
 
 if __name__ == '__main__':
