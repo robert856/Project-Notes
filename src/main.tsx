@@ -231,6 +231,34 @@ function App() {
   const canEdit = !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
+  // Capture native drops before any canvas/card handlers or browser default navigation.
+  useEffect(() => {
+    const protectPage = (event: DragEvent) => {
+      const types = Array.from(event.dataTransfer?.types || []);
+      const external =
+        types.includes("Files") || types.includes("text/uri-list");
+      if (!external) return;
+      event.preventDefault();
+      const target = event.target;
+      const canvas =
+        target instanceof Element && target.closest(".canvas-wrap");
+      if (!canvas) {
+        if (event.type === "dragover" && event.dataTransfer)
+          event.dataTransfer.dropEffect = "none";
+        if (event.type === "drop")
+          setMessage(
+            "File not added. Drop inside the board canvas, below the toolbars. Your workspace has stayed open.",
+          );
+      }
+    };
+    window.addEventListener("dragover", protectPage, true);
+    window.addEventListener("drop", protectPage, true);
+    return () => {
+      window.removeEventListener("dragover", protectPage, true);
+      window.removeEventListener("drop", protectPage, true);
+    };
+  }, []);
+
   useEffect(() => {
     if (!db) return;
     void db.auth.getSession().then(({ data }) => {

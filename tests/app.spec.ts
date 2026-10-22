@@ -318,6 +318,63 @@ test("oversized file rejection is visible and does not create a card", async ({
     );
     return d;
   });
+  await page.locator(".react-flow__pane").dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: 700,
+    clientY: 450,
+  });
+  await expect(page.getByRole("status")).toContainText(
+    "too-large.pdf exceeds the 20 MB file limit",
+  );
+  await expect(
+    page.locator(".react-flow__node").filter({ hasText: "too-large.pdf" }),
+  ).toHaveCount(0);
+});
+
+test("native file drops outside the canvas cannot replace the page", async ({
+  page,
+}) => {
+  await page.goto("/");
+  for (const selector of ["header", ".toolbar", ".sidebar"]) {
+    const prevented = await page
+      .locator(selector)
+      .first()
+      .evaluate((element) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(["image bytes"], "test.png", { type: "image/png" }),
+        );
+        element.addEventListener("drop", (event) => event.stopPropagation(), {
+          once: true,
+        });
+        const over = new DragEvent("dragover", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer,
+        });
+        element.dispatchEvent(over);
+        const drop = new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer,
+        });
+        element.dispatchEvent(drop);
+        return { over: over.defaultPrevented, drop: drop.defaultPrevented };
+      });
+    expect(prevented).toEqual({ over: true, drop: true });
+    await expect(page.getByRole("status")).toContainText(
+      "Drop inside the board canvas",
+    );
+    expect(new URL(page.url()).pathname).toBe("/");
+  }
+  // The guard must not suppress the intended canvas upload.
+  const transfer = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(
+      new File(["image bytes"], "canvas-image.png", { type: "image/png" }),
+    );
+    return d;
+  });
   await page
     .locator(".react-flow__pane")
     .dispatchEvent("drop", {
@@ -325,10 +382,7 @@ test("oversized file rejection is visible and does not create a card", async ({
       clientX: 700,
       clientY: 450,
     });
-  await expect(page.getByRole("status")).toContainText(
-    "too-large.pdf exceeds the 20 MB file limit",
-  );
   await expect(
-    page.locator(".react-flow__node").filter({ hasText: "too-large.pdf" }),
-  ).toHaveCount(0);
+    page.locator(".react-flow__node").filter({ hasText: "canvas-image.png" }),
+  ).toBeVisible();
 });
