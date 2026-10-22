@@ -234,3 +234,23 @@ export async function duplicatePage(page: Page) {
     })),
   );
 }
+
+export async function reloadPage(id: string): Promise<Page> {
+  if (!db) {
+    const page = convertBrowserPages().find(
+      (p) => p.id === id && !p.deleted_at,
+    );
+    if (!page) throw new Error("This page is no longer available.");
+    return page;
+  }
+  const { data, error } = await db
+    .from("pages")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error)
+    throw new Error(
+      "Could not reload this page. Refresh shared pages to check access.",
+    );
+  return data;
+}

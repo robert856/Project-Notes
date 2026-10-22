@@ -34,6 +34,7 @@ import Markdown from "react-markdown";
 import { db, url as projectUrl } from "./api";
 import { PageCanvas } from "./PageCanvas";
 import { PageEditor } from "./PageEditor";
+import { InlineChecklist } from "./InlineChecklist";
 import { ArrangePanel, type Arrangement } from "./ArrangePanel";
 import { alignCards, distributeCards } from "./alignment";
 import {
@@ -323,7 +324,7 @@ export default function PagesApp() {
       commit(change);
       return change.after[0];
     });
-    if (!position && kind !== "page") setEditor(p);
+    if (!position && kind !== "page" && kind !== "checklist") setEditor(p);
   };
   const upload = async (files: File[], position?: { x: number; y: number }) => {
     if (!canCreate) {
@@ -388,13 +389,6 @@ export default function PagesApp() {
     link.click();
     if (url.startsWith("blob:"))
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  };
-  const toggle = async (p: Page, index: number) => {
-    const lines = p.content.split("\n");
-    lines[index] = lines[index].startsWith("[x]")
-      ? lines[index].replace("[x]", "[ ]")
-      : lines[index].replace(/^\[ \]|^/, "[x]");
-    await save([{ id: p.id, version: p.version, content: lines.join("\n") }]);
   };
   const arrangePages = async (direction: Arrangement) => {
     const targets = selected
@@ -753,9 +747,18 @@ export default function PagesApp() {
             </button>
           </div>
         </section>
-        {active?.content && (
+        {active && (active.content || active.kind === "checklist") && (
           <section className="page-own-content">
-            {active.kind === "image" && safeUrl(active.content) ? (
+            {active.kind === "checklist" ? (
+              <InlineChecklist
+                key={active.id}
+                page={active}
+                editable={canEdit(active)}
+                onSave={(content, version) =>
+                  save([{ id: active.id, version, content }])
+                }
+              />
+            ) : active.kind === "image" && safeUrl(active.content) ? (
               <img src={active.content} alt={active.title} />
             ) : active.kind === "file" ? (
               <button
@@ -785,7 +788,8 @@ export default function PagesApp() {
             pages={displayed}
             all={visible}
             current={current}
-            editable={(p) => canEdit(p) && !busy && !query}
+            editable={(p) => canEdit(p) && !query}
+            busy={busy}
             selection={selection}
             onSelection={(ids) =>
               setSelection((old) =>
@@ -801,7 +805,6 @@ export default function PagesApp() {
             onDrop={(event, instance) => action(() => drop(event, instance))}
             onHover={setHover}
             onDownload={(p) => action(() => download(p))}
-            onToggle={(p, i) => action(() => toggle(p, i))}
             onReady={(instance) => {
               flow.current = instance;
             }}

@@ -5,6 +5,7 @@ A minimal visual workspace built with React, TypeScript, Vite, React Flow and Su
 ## Use pages
 
 - Click **New page** or drag **Page** from the left toolbar onto the canvas. Click its title to rename it. Open it with its arrow or a double-click to see its content and nested pages.
+- To-do pages edit directly in their blocks: click the title or a task to edit, type into **Add a to-do…** and press Enter (or click away) to add, and drag the grip beside a task up or down to reorder it. Completion marks move with tasks; Alt+↑/↓ on a grip also reorders. Changes save automatically, support Undo, and retain your draft on a version conflict.
 - Use the text, image, link, checklist and private-file shortcuts to create pages with those content formats. Every format can contain child pages.
 - Drag a page onto another page to nest it. The destination gets a subtle outline. **Only releasing the mouse commits the move.** Dragging away removes the highlight and leaves the page on the current canvas.
 - Drag onto a breadcrumb at the top to move a page to that ancestor. Drop onto **Home** to make it top-level. Use **Move** for a searchable destination picker across other branches. Self/descendant destinations are excluded, and the database prevents cycles even for concurrent moves.

@@ -247,15 +247,22 @@ test("creates text, links, images and checklists as pages with nested children",
   await make(page, "Child page");
   await home(page);
   await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+  await expect(page.getByRole("form", { name: "Edit page" })).toHaveCount(0);
   await page
-    .getByRole("textbox", { name: "Page title", exact: true })
-    .fill("Tasks");
-  await page
-    .getByRole("textbox", { name: "Page content" })
-    .fill("[ ] First task\n[x] Done");
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await node(page, "Tasks").getByRole("checkbox").first().check();
-  await expect(node(page, "Tasks").getByRole("checkbox").first()).toBeChecked();
+    .getByRole("button", { name: "Rename Untitled page", exact: true })
+    .click();
+  const title = page.getByRole("textbox", { name: "Page title", exact: true });
+  await title.fill("Tasks");
+  await title.press("Enter");
+  const tasks = node(page, "Tasks");
+  await tasks
+    .getByRole("textbox", { name: "New to-do", exact: true })
+    .fill("First task");
+  await tasks
+    .getByRole("textbox", { name: "New to-do", exact: true })
+    .press("Enter");
+  await tasks.getByRole("checkbox").first().check();
+  await expect(tasks.getByRole("checkbox").first()).toBeChecked();
 });
 test("drops YouTube URLs and local files, preserving file bytes across refresh", async ({
   page,
@@ -484,4 +491,141 @@ test("duplicates a page with its full nested hierarchy and supports Undo", async
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(openButton(page, "Copy parent — copy")).toHaveCount(0);
   await expect(openButton(page, "Copy parent")).toBeVisible();
+});
+
+test("edits to-dos inline, reorders them with drag handles, preserves completion and supports Undo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+  await expect(page.locator(".page-modal")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Rename Untitled page", exact: true })
+    .click();
+  const title = page.getByRole("textbox", { name: "Page title", exact: true });
+  await title.fill("Inline tasks");
+  await title.press("Enter");
+  const card = node(page, "Inline tasks"),
+    add = card.getByRole("textbox", { name: "New to-do", exact: true });
+  for (const text of ["First", "Second"]) {
+    await add.fill(text);
+    await add.press("Enter");
+  }
+  await add.fill("Third");
+  await card
+    .getByRole("button", { name: "Add to-do item", exact: true })
+    .click();
+  await expect(
+    card.getByRole("textbox", { name: "To-do 3", exact: true }),
+  ).toHaveValue("Third");
+  await card
+    .getByRole("textbox", { name: "To-do 2", exact: true })
+    .fill("Edited second");
+  await card
+    .getByRole("textbox", { name: "To-do 2", exact: true })
+    .press("Enter");
+  await card
+    .getByRole("checkbox", { name: "Complete task 2", exact: true })
+    .check();
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  const before = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("stillroom-pages:v1")!).find(
+      (p: { title: string }) => p.title === "Inline tasks",
+    ),
+  );
+  await card
+    .getByRole("button", { name: "Reorder task 3", exact: true })
+    .dragTo(card.getByRole("textbox", { name: "To-do 1", exact: true }));
+  await expect(
+    card.getByRole("textbox", { name: "To-do 1", exact: true }),
+  ).toHaveValue("Third");
+  await expect(
+    card.getByRole("textbox", { name: "To-do 3", exact: true }),
+  ).toHaveValue("Edited second");
+  await expect(
+    card.getByRole("checkbox", { name: "Complete task 3", exact: true }),
+  ).toBeChecked();
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  const after = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("stillroom-pages:v1")!).find(
+      (p: { title: string }) => p.title === "Inline tasks",
+    ),
+  );
+  expect(after.x).toBe(before.x);
+  expect(after.y).toBe(before.y);
+  expect(after.parent_id).toBe(before.parent_id);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(
+    card.getByRole("textbox", { name: "To-do 1", exact: true }),
+  ).toHaveValue("First");
+  await card
+    .getByRole("button", { name: "Reorder task 1", exact: true })
+    .focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(
+    card.getByRole("textbox", { name: "To-do 1", exact: true }),
+  ).toHaveValue("Edited second");
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(
+    card.getByRole("textbox", { name: "To-do 1", exact: true }),
+  ).toHaveValue("Edited second");
+  await card
+    .getByRole("button", { name: "Remove task 2", exact: true })
+    .click();
+  await expect(
+    card.getByRole("textbox", { name: "To-do 2", exact: true }),
+  ).toHaveValue("Third");
+  await open(page, "Inline tasks");
+  const opened = page.locator(".page-own-content");
+  await opened
+    .getByRole("textbox", { name: "New to-do", exact: true })
+    .fill("Opened page task");
+  await opened
+    .getByRole("textbox", { name: "New to-do", exact: true })
+    .press("Enter");
+  await expect(
+    opened.getByRole("textbox", { name: "To-do 3", exact: true }),
+  ).toHaveValue("Opened page task");
+});
+
+test("keeps an inline task draft when another browser changes the page", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+  const card = node(page, "Untitled page"),
+    add = card.getByRole("textbox", { name: "New to-do", exact: true });
+  await add.fill("Original");
+  await add.press("Enter");
+  await expect(card.getByText("Saving tasks…", { exact: true })).toHaveCount(0);
+  const task = card.getByRole("textbox", { name: "To-do 1", exact: true });
+  await task.fill("My unsaved draft");
+  await page.evaluate(() => {
+    const key = "stillroom-pages:v1",
+      pages = JSON.parse(localStorage.getItem(key)!);
+    const p = pages.find(
+      (p: { kind: string }) =>
+        p.kind === "checklist" && p.title === "Untitled page",
+    );
+    p.content = "[ ] Someone else's edit";
+    p.version++;
+    localStorage.setItem(key, JSON.stringify(pages));
+  });
+  await task.press("Enter");
+  await expect(card.getByRole("alert")).toContainText("Your draft is kept");
+  await expect(task).toHaveValue("My unsaved draft");
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("stillroom-pages:v1")!).find(
+          (p: { kind: string }) =>
+            p.kind === "checklist" && p.title === "Untitled page",
+        ).content,
+    ),
+  ).toBe("[ ] Someone else's edit");
+  await card
+    .getByRole("button", { name: "Reload saved tasks", exact: true })
+    .click();
+  await expect(task).toHaveValue("Someone else's edit");
 });

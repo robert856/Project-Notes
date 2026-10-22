@@ -18,6 +18,7 @@ import { ancestors, pageSize } from "./pages";
 import { safeUrl } from "./model";
 import { youtubeId, acceptedDropEffect } from "./drops";
 import { fileUrl } from "./pageRepository";
+import { InlineChecklist } from "./InlineChecklist";
 function PageNode({ data, selected }: NodeProps) {
   const p = data.page as Page,
     [renaming, setRenaming] = useState(false),
@@ -58,7 +59,9 @@ function PageNode({ data, selected }: NodeProps) {
       <NodeResizer
         minWidth={170}
         minHeight={120}
-        isVisible={p.kind !== "page" && !!selected && !!data.editable}
+        isVisible={
+          p.kind !== "page" && !!selected && !!data.editable && !data.busy
+        }
         onResizeEnd={(_e, size) =>
           (
             data.resize as (
@@ -81,6 +84,7 @@ function PageNode({ data, selected }: NodeProps) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onFocus={(e) => e.target.select()}
+          onDoubleClick={(e) => e.stopPropagation()}
           onBlur={rename}
           onKeyDown={(e) => {
             e.stopPropagation();
@@ -94,8 +98,9 @@ function PageNode({ data, selected }: NodeProps) {
       ) : (
         <button
           className="nodrag page-card-title"
+          onDoubleClick={(e) => e.stopPropagation()}
           aria-label={`Rename ${p.title}`}
-          disabled={!data.editable}
+          disabled={!data.editable || !!data.busy}
           onClick={() => {
             setDraft(p.title);
             setRenaming(true);
@@ -143,22 +148,18 @@ function PageNode({ data, selected }: NodeProps) {
             {p.content ? "Open attachment" : "No attachment yet"}
           </button>
         ) : p.kind === "checklist" ? (
-          p.content
-            .split("\n")
-            .filter(Boolean)
-            .map((line, i) => (
-              <label key={i} className="nodrag page-check">
-                <input
-                  type="checkbox"
-                  disabled={!data.editable}
-                  checked={line.startsWith("[x]")}
-                  onChange={() =>
-                    (data.toggle as (p: Page, i: number) => void)(p, i)
-                  }
-                />
-                <span>{line.replace(/^\[[ x]\]\s*/, "")}</span>
-              </label>
-            ))
+          <InlineChecklist
+            page={p}
+            editable={!!data.editable}
+            onSave={(content, version) =>
+              (
+                data.saveTasks as (
+                  content: string,
+                  version: number,
+                ) => Promise<void>
+              )(content, version)
+            }
+          />
         ) : (
           <Markdown>{p.content.slice(0, 1200)}</Markdown>
         )}
@@ -191,7 +192,7 @@ export function PageCanvas({
   onDrop,
   onHover,
   onDownload,
-  onToggle,
+  busy,
   onReady,
   onError,
 }: {
@@ -210,7 +211,7 @@ export function PageCanvas({
   onDrop: (event: DragEvent, flow: ReactFlowInstance) => void;
   onHover: (id: string | undefined) => void;
   onDownload: (p: Page) => void;
-  onToggle: (p: Page, i: number) => void;
+  busy: boolean;
   onReady: (flow: ReactFlowInstance) => void;
   onError: (message: string) => void;
 }) {
@@ -237,7 +238,7 @@ export function PageCanvas({
         type: "page",
         position: { x: p.x, y: p.y },
         ...pageSize(p),
-        draggable: editable(p),
+        draggable: editable(p) && !busy,
         selected: previous.find((n) => n.id === p.id)?.selected || false,
         data: {
           page: p,
@@ -253,11 +254,13 @@ export function PageCanvas({
               (e) => onError(e.message),
             ),
           download: onDownload,
-          toggle: onToggle,
+          busy,
+          saveTasks: (content: string, version: number) =>
+            onSave([{ id: p.id, version, content }]),
         },
       })),
     );
-  }, [pages, all, editState]);
+  }, [pages, all, editState, busy]);
   useEffect(() => {
     setNodes((previous) =>
       previous.map((n) => ({ ...n, selected: selection.includes(n.id) })),
