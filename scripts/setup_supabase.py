@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -96,6 +97,8 @@ def setup():
             print(f'Already applied: {file.name}')
             continue
         print(f'::notice::Applying {file.name}', flush=True)
+        # Management API generates migration IDs at one-second resolution.
+        time.sleep(1.1)
         management('/database/migrations', 'POST', {'name': name, 'query': file.read_text()})
         print(f'Applied: {file.name}')
     current = management('/config/auth')
