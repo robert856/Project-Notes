@@ -1310,7 +1310,17 @@ test("drops a Home board into a project, supports Undo and persists its new pare
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 20 });
+    await expect(
+      target.locator(
+        "xpath=ancestor::*[contains(@class, 'react-flow__node')][1]",
+      ),
+    ).toHaveClass(/board-drop-target/);
     await page.mouse.up();
+    await expect(
+      target.locator(
+        "xpath=ancestor::*[contains(@class, 'react-flow__node')][1]",
+      ),
+    ).not.toHaveClass(/board-drop-target/);
     await expect(source).toHaveCount(0);
   };
   await move();

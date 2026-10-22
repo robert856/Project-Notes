@@ -163,6 +163,35 @@ export function ExplorerCanvas({
   onRename?: (id: string, title: string) => Promise<boolean>;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  useEffect(() => {
+    const clear = () => setDropTarget(null);
+    window.addEventListener("blur", clear);
+    return () => window.removeEventListener("blur", clear);
+  }, []);
+  const boardDropTarget = (node: Node, moved: Node[]) => {
+    if (
+      !onMoveBoard ||
+      moved.length > 1 ||
+      !items.some((item) => item.id === node.id && item.kind === "board")
+    )
+      return undefined;
+    const center = {
+      x: node.position.x + (node.measured?.width || 170) / 2,
+      y: node.position.y + 45,
+    };
+    return nodes.find(
+      (candidate) =>
+        candidate.id !== node.id &&
+        items.some(
+          (item) => item.id === candidate.id && item.kind === "project",
+        ) &&
+        center.x >= candidate.position.x &&
+        center.x <= candidate.position.x + (candidate.measured?.width || 170) &&
+        center.y >= candidate.position.y &&
+        center.y <= candidate.position.y + (candidate.measured?.height || 140),
+    );
+  };
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const openNode = (node: Node) => {
     if (node.type === "tile") onOpen(node.id);
@@ -276,7 +305,10 @@ export function ExplorerCanvas({
         event.preventDefault();
         openNode(selected[0]);
       }
-      if (event.key === "Escape") setSelection(false);
+      if (event.key === "Escape") {
+        setSelection(false);
+        setDropTarget(null);
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
         setSelection(true);
@@ -339,7 +371,10 @@ export function ExplorerCanvas({
       }}
     >
       <ReactFlow
-        nodes={nodes}
+        nodes={nodes.map((node): Node => ({
+          ...node,
+          className: node.id === dropTarget ? "board-drop-target" : undefined,
+        }))}
         nodeTypes={{ ...nodeTypes, ...contentTypes }}
         onInit={onInit}
         onNodesChange={(changes) => {
@@ -353,44 +388,25 @@ export function ExplorerCanvas({
         onNodeDragStart={(_event, node) => {
           dragOrigin.current = { ...node.position };
         }}
+        onNodeDrag={(_event, node, moved) => {
+          setDropTarget(boardDropTarget(node, moved)?.id || null);
+        }}
         onNodeDragStop={(_event, node, moved) => {
           const movedNodes = moved.length ? moved : [node];
-          const item = items.find((item) => item.id === node.id);
-          if (
-            onMoveBoard &&
-            movedNodes.length === 1 &&
-            item?.kind === "board"
-          ) {
-            const center = {
-              x: node.position.x + (node.measured?.width || 170) / 2,
-              y: node.position.y + 45,
-            };
-            const target = nodes.find(
-              (candidate) =>
-                candidate.id !== node.id &&
-                items.some(
-                  (item) => item.id === candidate.id && item.kind === "project",
-                ) &&
-                center.x >= candidate.position.x &&
-                center.x <=
-                  candidate.position.x + (candidate.measured?.width || 170) &&
-                center.y >= candidate.position.y &&
-                center.y <=
-                  candidate.position.y + (candidate.measured?.height || 140),
-            );
-            if (target) {
-              void onMoveBoard(node.id, target.id).catch((error) => {
-                setNodes((previous) =>
-                  previous.map((n) =>
-                    n.id === node.id
-                      ? { ...n, position: dragOrigin.current || n.position }
-                      : n,
-                  ),
-                );
-                onError((error as Error).message);
-              });
-              return;
-            }
+          setDropTarget(null);
+          const target = boardDropTarget(node, movedNodes);
+          if (target && onMoveBoard) {
+            void onMoveBoard(node.id, target.id).catch((error) => {
+              setNodes((previous) =>
+                previous.map((n) =>
+                  n.id === node.id
+                    ? { ...n, position: dragOrigin.current || n.position }
+                    : n,
+                ),
+              );
+              onError((error as Error).message);
+            });
+            return;
           }
           const content = movedNodes.filter((n) => n.type !== "tile");
           if (content.length) onContentMove?.(content);

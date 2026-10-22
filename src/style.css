@@ -1612,3 +1612,20 @@ h1 {
   font-size: 10px;
   color: #687260;
 }
+
+/* A quiet landing cue, confined to the destination project icon. */
+.explorer-open {
+  transition:
+    outline-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.explorer-canvas .react-flow__node.board-drop-target .explorer-open {
+  outline: 3px solid #718461;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 7px #71846118;
+}
+@media (prefers-reduced-motion: reduce) {
+  .explorer-open {
+    transition: none;
+  }
+}
