@@ -1161,3 +1161,7 @@ h1 {
     padding: 8px 12px;
   }
 }
+/* Intercept external drops above embedded players and other canvas children. */
+.drop-active .drop-overlay {
+  pointer-events: auto;
+}

@@ -358,13 +358,33 @@ function App() {
   const [dropping, setDropping] = useState(false);
   const dropOnCanvas = async (event: React.DragEvent) => {
     event.preventDefault();
+    event.stopPropagation();
     setDropActive(false);
-    if (!canEdit || !current || !flow || dropping) return;
+    if (!canEdit) {
+      notify("You need editor access to add files to this board.");
+      return;
+    }
+    if (!current || !flow) {
+      notify("Open a board before dropping files.");
+      return;
+    }
+    if (dropping) {
+      notify("Please wait for the current files to finish saving.");
+      return;
+    }
     const point = flow.screenToFlowPosition({
       x: event.clientX,
       y: event.clientY,
     });
     const files = Array.from(event.dataTransfer.files);
+    if (!files.length) {
+      for (const item of Array.from(event.dataTransfer.items)) {
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+    }
     const url = droppedUrl(
       event.dataTransfer.getData("text/uri-list"),
       event.dataTransfer.getData("text/plain"),
@@ -375,6 +395,8 @@ function App() {
       return;
     }
     setDropping(true);
+    let added = 0;
+    const rejected: string[] = [];
     try {
       const items: (File | string)[] = files.length ? files : [url!];
       for (const [index, item] of items.entries()) {
@@ -398,7 +420,7 @@ function App() {
           c.content = item;
         } else {
           if (item.size > 20 * 1024 * 1024) {
-            notify(`${item.name} exceeds the 20 MB file limit.`);
+            rejected.push(`${item.name} exceeds the 20 MB file limit.`);
             continue;
           }
           c.title = item.name;
@@ -435,10 +457,19 @@ function App() {
           }
         }
         setCards((previous) => [...previous, c]);
+        added += 1;
+        setQuery("");
       }
-      if (files.length && !db)
+      if (files.length)
         notify(
-          "Files saved in this browser only. Connect Supabase to share them.",
+          [
+            added
+              ? `${added} file${added === 1 ? "" : "s"} added.${!db ? " Saved in this browser only." : ""}`
+              : "",
+            ...rejected,
+          ]
+            .filter(Boolean)
+            .join(" "),
         );
     } catch (error) {
       notify(`Drop could not be completed: ${(error as Error).message}`);
@@ -1052,20 +1083,26 @@ function App() {
                 event.stopPropagation();
               }
             }}
-            onDragOver={(event) => {
+            onDragEnterCapture={(event) => {
+              event.preventDefault();
+              if (canEdit) setDropActive(true);
+            }}
+            onDragOverCapture={(event) => {
               event.preventDefault();
               event.dataTransfer.dropEffect = canEdit ? "copy" : "none";
               if (canEdit) setDropActive(true);
             }}
             onDragLeave={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
               if (
-                !event.currentTarget.contains(
-                  event.relatedTarget as globalThis.Node,
-                )
+                event.clientX <= rect.left ||
+                event.clientX >= rect.right ||
+                event.clientY <= rect.top ||
+                event.clientY >= rect.bottom
               )
                 setDropActive(false);
             }}
-            onDrop={(event) => void dropOnCanvas(event)}
+            onDropCapture={(event) => void dropOnCanvas(event)}
           >
             {(dropActive || dropping) && (
               <div className="drop-overlay" role="status">

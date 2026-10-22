@@ -251,3 +251,84 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
   await page.keyboard.press("Control+a");
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
 });
+
+test("PDF drop is captured over cards, survives refresh, and preserves its bytes", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("textbox", { name: "Search boards and cards" })
+    .fill("Addison");
+  const target = page.locator(".canvas-card").first();
+  await expect(target).toBeVisible();
+  // A child handler must not be able to swallow the outer canvas drop.
+  await target.evaluate((el) =>
+    el.addEventListener("drop", (event) => event.stopPropagation()),
+  );
+  const transfer = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(
+      new File(
+        ["%PDF-1.4\nCreative project notes\n%%EOF"],
+        "project-notes.pdf",
+        { type: "application/pdf" },
+      ),
+    );
+    return d;
+  });
+  await target.dispatchEvent("dragenter", { dataTransfer: transfer });
+  await expect(page.getByText("Drop it here", { exact: true })).toBeVisible();
+  await target.dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: 750,
+    clientY: 500,
+  });
+  const card = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "project-notes.pdf" });
+  await expect(card).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Search boards and cards" }),
+  ).toHaveValue("");
+  await page.reload();
+  await expect(card).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    card.getByRole("button", { name: "Download attachment" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("project-notes.pdf");
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  expect(Buffer.concat(chunks).toString()).toBe(
+    "%PDF-1.4\nCreative project notes\n%%EOF",
+  );
+});
+
+test("oversized file rejection is visible and does not create a card", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const transfer = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.items.add(
+      new File([new Uint8Array(20 * 1024 * 1024 + 1)], "too-large.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    return d;
+  });
+  await page
+    .locator(".react-flow__pane")
+    .dispatchEvent("drop", {
+      dataTransfer: transfer,
+      clientX: 700,
+      clientY: 450,
+    });
+  await expect(page.getByRole("status")).toContainText(
+    "too-large.pdf exceeds the 20 MB file limit",
+  );
+  await expect(
+    page.locator(".react-flow__node").filter({ hasText: "too-large.pdf" }),
+  ).toHaveCount(0);
+});
