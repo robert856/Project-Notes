@@ -1193,6 +1193,32 @@ function App() {
           <span>Browse</span>
         </button>
         <div className="rail-divider" />
+        <button
+          className="rail-tool"
+          title="Create project"
+          aria-label="Create project"
+          onClick={() => void newProject()}
+        >
+          <Plus size={21} strokeWidth={1.5} />
+          <span>Projects</span>
+        </button>
+        <button
+          className="rail-tool"
+          title="Add board"
+          aria-label="Add board"
+          disabled={!canEdit}
+          draggable={canEdit}
+          onDragStart={(event) => {
+            event.dataTransfer.setData("application/x-stillroom-tool", "board");
+            event.dataTransfer.effectAllowed = "copy";
+            setArrangeOpen(false);
+          }}
+          onClick={() => void createBoard()}
+        >
+          <Folder size={21} strokeWidth={1.5} />
+          <span>Board</span>
+        </button>
+        <div className="rail-divider" />
         {(
           ["text", "link", "checklist", "image", "file", "group"] as Kind[]
         ).map((kind, index) => {
@@ -1228,33 +1254,6 @@ function App() {
             </button>
           );
         })}
-        <button
-          className="rail-tool"
-          title="Add board"
-          aria-label="Add board"
-          disabled={!canEdit}
-          draggable={canEdit}
-          onDragStart={(event) => {
-            event.dataTransfer.setData("application/x-stillroom-tool", "board");
-            event.dataTransfer.effectAllowed = "copy";
-            setArrangeOpen(false);
-          }}
-          onClick={() => void createBoard()}
-        >
-          <Folder size={21} strokeWidth={1.5} />
-          <span>Board</span>
-        </button>
-        {workspaceHome && (
-          <button
-            className="rail-tool"
-            title="Create project"
-            aria-label="Create project"
-            onClick={() => void newProject()}
-          >
-            <Plus size={21} strokeWidth={1.5} />
-            <span>Project</span>
-          </button>
-        )}
         <div className="rail-divider" />
         <button
           className={`rail-tool ${arrangeOpen ? "active" : ""}`}
@@ -1385,6 +1384,7 @@ function App() {
               </button>
               {project === p.id && (
                 <div className="board-nav">
+                  <div className="board-nav-label">Boards</div>
                   {boards
                     .filter(
                       (b) => b.project_id === project && !b.is_project_canvas,
@@ -1407,7 +1407,7 @@ function App() {
                     ))}
                   {canEdit && (
                     <button onClick={() => void createBoard()}>
-                      <Plus size={14} /> New note
+                      <Plus size={14} /> New board
                     </button>
                   )}
                 </div>
@@ -1640,7 +1640,7 @@ function App() {
             dropping={dropping}
             canDelete={workspaceHome || canEdit}
             recordUndo={undoHistory.recordExternal}
-            label={workspaceHome ? "Create a project" : "Create a note"}
+            label={workspaceHome ? "Create a project" : "Create a board"}
             onCreate={
               workspaceHome
                 ? () => void newProject()

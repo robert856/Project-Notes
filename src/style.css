@@ -1606,3 +1606,9 @@ h1 {
 .canvas-dragging iframe {
   pointer-events: none;
 }
+
+.board-nav-label {
+  padding: 8px 12px 4px;
+  font-size: 10px;
+  color: #687260;
+}
