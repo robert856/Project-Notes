@@ -1586,3 +1586,14 @@ h1 {
   outline-offset: 4px;
   box-shadow: 0 0 0 7px #82996714;
 }
+.minimal-workspace .explorer-canvas .selection-toolbar {
+  position: fixed;
+  left: 77px;
+  top: 425px;
+}
+@media (max-width: 760px) {
+  .minimal-workspace .explorer-canvas .selection-toolbar {
+    left: 64px;
+    top: 330px;
+  }
+}

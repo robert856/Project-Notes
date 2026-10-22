@@ -13,6 +13,8 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { Folder, LayoutGrid, Plus, ArrowUpRight, Trash2 } from "lucide-react";
+import { ArrangePanel, type Arrangement } from "./ArrangePanel";
+import { alignCards, distributeCards } from "./alignment";
 import { acceptedDropEffect } from "./drops";
 export interface ExplorerItem {
   id: string;
@@ -61,6 +63,8 @@ export function ExplorerCanvas({
   onDrop,
   canDrop = false,
   dropping = false,
+  arrangeOpen = false,
+  onError,
 }: {
   items: ExplorerItem[];
   scope: string;
@@ -74,10 +78,12 @@ export function ExplorerCanvas({
   contentTypes?: NodeTypes;
   onInit?: (flow: ReactFlowInstance) => void;
   onContentChange?: (changes: NodeChange[]) => void;
-  onContentMove?: (nodes: Node[]) => void;
+  onContentMove?: (nodes: Node[]) => Promise<void> | void;
   onDrop?: (event: DragEvent) => Promise<void>;
   canDrop?: boolean;
   dropping?: boolean;
+  arrangeOpen?: boolean;
+  onError: (message: string) => void;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -93,6 +99,77 @@ export function ExplorerCanvas({
   }, []);
   const [deleting, setDeleting] = useState(false);
   const selected = nodes.filter((n) => n.selected);
+  const [arranging, setArranging] = useState(false);
+  const setSelection = (selected: boolean) => {
+    setNodes((previous) => previous.map((n) => ({ ...n, selected })));
+    onContentChange?.(
+      contentNodes.map((n) => ({
+        id: n.id,
+        type: "select" as const,
+        selected,
+      })),
+    );
+  };
+  const saveTilePositions = (tiles: Node[]) => {
+    if (!tiles.length) return;
+    const key = `stillroom-layout:${scope}`;
+    const oldLayout = localStorage.getItem(key);
+    const saved = JSON.parse(oldLayout || "{}");
+    for (const tile of tiles) saved[tile.id] = tile.position;
+    localStorage.setItem(key, JSON.stringify(saved));
+    recordUndo(async () => {
+      if (oldLayout === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, oldLayout);
+      window.dispatchEvent(new Event("stillroom-layout-change"));
+    });
+  };
+  const arrangeSelection = async (direction: Arrangement) => {
+    if (
+      arranging ||
+      selected.length < 2 ||
+      selected.some((n) => n.type !== "tile" && !canDrop)
+    )
+      return;
+    const rectangles = selected.map((n) => ({
+      id: n.id,
+      x: n.position.x,
+      y: n.position.y,
+      width: n.measured?.width || Number(n.style?.width) || 155,
+      height: n.measured?.height || Number(n.style?.height) || 145,
+    }));
+    const positions = new Map(
+      (direction === "horizontal" || direction === "vertical"
+        ? distributeCards(rectangles, direction)
+        : alignCards(rectangles, direction)
+      ).map((r) => [r.id, r]),
+    );
+    const moved = selected.map((n) => ({
+      ...n,
+      position: { x: positions.get(n.id)!.x, y: positions.get(n.id)!.y },
+    }));
+    setArranging(true);
+    try {
+      saveTilePositions(moved.filter((n) => n.type === "tile"));
+      setNodes((previous) =>
+        previous.map((n) => moved.find((m) => m.id === n.id) || n),
+      );
+      const content = moved.filter((n) => n.type !== "tile");
+      if (content.length) {
+        onContentChange?.(
+          content.map((n) => ({
+            id: n.id,
+            type: "position" as const,
+            position: n.position,
+          })),
+        );
+        await onContentMove?.(content);
+      }
+    } catch (error) {
+      onError((error as Error).message);
+    } finally {
+      setArranging(false);
+    }
+  };
   const deleteSelection = async () => {
     if (deleting || !canDelete || !selected.length) return;
     setDeleting(true);
@@ -122,13 +199,10 @@ export function ExplorerCanvas({
         event.preventDefault();
         openNode(selected[0]);
       }
-      if (event.key === "Escape")
-        setNodes((previous) =>
-          previous.map((n) => ({ ...n, selected: false })),
-        );
+      if (event.key === "Escape") setSelection(false);
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
-        setNodes((previous) => previous.map((n) => ({ ...n, selected: true })));
+        setSelection(true);
       }
     };
     document.addEventListener("keydown", keyboard);
@@ -221,18 +295,9 @@ export function ExplorerCanvas({
           const tiles = movedNodes.filter((n) => n.type === "tile");
           if (!tiles.length) return;
           try {
-            const key = `stillroom-layout:${scope}`;
-            const oldLayout = localStorage.getItem(key);
-            const saved = JSON.parse(oldLayout || "{}");
-            for (const tile of tiles) saved[tile.id] = tile.position;
-            localStorage.setItem(key, JSON.stringify(saved));
-            recordUndo(async () => {
-              if (oldLayout === null) localStorage.removeItem(key);
-              else localStorage.setItem(key, oldLayout);
-              window.dispatchEvent(new Event("stillroom-layout-change"));
-            });
-          } catch {
-            /* Tile positions remain personal. */
+            saveTilePositions(tiles);
+          } catch (error) {
+            onError((error as Error).message);
           }
         }}
         onNodeDoubleClick={(_event, node) => openNode(node)}
@@ -253,6 +318,16 @@ export function ExplorerCanvas({
         />
         <Controls showInteractive={false} />
       </ReactFlow>
+      <ArrangePanel
+        open={arrangeOpen}
+        count={selected.length}
+        total={nodes.length}
+        canArrange={!selected.some((n) => n.type !== "tile" && !canDrop)}
+        busy={arranging || deleting || dropping}
+        onSelectAll={() => setSelection(true)}
+        onClear={() => setSelection(false)}
+        onArrange={(direction) => void arrangeSelection(direction)}
+      />
       {!!selected.length && (
         <div
           className="explorer-selection"

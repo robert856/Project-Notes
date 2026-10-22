@@ -19,14 +19,6 @@ import {
   Undo2,
   Home,
   SlidersHorizontal,
-  AlignHorizontalJustifyStart,
-  AlignHorizontalJustifyCenter,
-  AlignHorizontalJustifyEnd,
-  AlignVerticalJustifyStart,
-  AlignVerticalJustifyCenter,
-  AlignVerticalJustifyEnd,
-  AlignHorizontalSpaceBetween,
-  AlignVerticalSpaceBetween,
   ArrowUpRight,
   Plus,
   Search,
@@ -55,6 +47,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./style.css";
 import Markdown from "react-markdown";
+import { ArrangePanel } from "./ArrangePanel";
 import { ExplorerCanvas } from "./ExplorerCanvas";
 import { useWorkspaceUndo } from "./undo";
 import { db, saveCard, trashItems, restoreWorkspace } from "./api";
@@ -205,14 +198,6 @@ function CanvasCard({ data, selected }: NodeProps) {
     </>
   );
 }
-const alignmentIcons = {
-  left: AlignHorizontalJustifyStart,
-  center: AlignHorizontalJustifyCenter,
-  right: AlignHorizontalJustifyEnd,
-  top: AlignVerticalJustifyStart,
-  middle: AlignVerticalJustifyCenter,
-  bottom: AlignVerticalJustifyEnd,
-};
 const nodeTypes = { card: CanvasCard };
 function App() {
   const [user, setUser] = useState<string | null>(null),
@@ -1024,7 +1009,6 @@ function App() {
           className={`rail-tool ${arrangeOpen ? "active" : ""}`}
           title="Align and distribute"
           aria-label="Align and distribute"
-          disabled={workspaceHome}
           onClick={() => setArrangeOpen(!arrangeOpen)}
           aria-expanded={arrangeOpen}
         >
@@ -1336,84 +1320,24 @@ function App() {
             </button>
           </div>
         </section>
-        {!workspaceHome && (
-          <div
-            className={`selection-toolbar ${arrangeOpen ? "expanded" : ""}`}
-            aria-label="Note selection and alignment"
-          >
-            <button onClick={selectAll} disabled={!nodes.length}>
-              Select all
-            </button>
-            <button onClick={clearSelection} disabled={!selectedNodes.length}>
-              Clear
-            </button>
-            <span className="selection-count" aria-live="polite">
-              {selectedNodes.length} selected
-            </span>
-            <span className="alignment-label">Align</span>
-            {(
-              [
-                "left",
-                "center",
-                "right",
-                "top",
-                "middle",
-                "bottom",
-              ] as Alignment[]
-            ).map((direction) => (
-              <button
-                key={direction}
-                aria-label={`Align ${direction}`}
-                title={`Align ${direction}`}
-                className="arrange-icon"
-                disabled={!canEdit || arranging || selectedNodes.length < 2}
-                onClick={() => alignSelection(direction)}
-              >
-                {React.createElement(alignmentIcons[direction], {
-                  size: 18,
-                  strokeWidth: 1.7,
-                  "aria-hidden": true,
-                })}
-              </button>
-            ))}
-            <span className="alignment-label">Distribute</span>
-            <button
-              aria-label="Distribute horizontally"
-              title="Distribute horizontally — equal gaps across"
-              className="arrange-icon"
-              disabled={!canEdit || arranging || selectedNodes.length < 3}
-              onClick={() => alignSelection("horizontal")}
-            >
-              <AlignHorizontalSpaceBetween
-                size={18}
-                strokeWidth={1.7}
-                aria-hidden="true"
-              />
-            </button>
-            <button
-              aria-label="Distribute vertically"
-              title="Distribute vertically — equal gaps down"
-              className="arrange-icon"
-              disabled={!canEdit || arranging || selectedNodes.length < 3}
-              onClick={() => alignSelection("vertical")}
-            >
-              <AlignVerticalSpaceBetween
-                size={18}
-                strokeWidth={1.7}
-                aria-hidden="true"
-              />
-            </button>
-            <span className="selection-help">
-              {arranging
-                ? "Saving positions…"
-                : "Drag empty canvas to select · Shift-click to add"}
-            </span>
-          </div>
+        {!dashboard && (
+          <ArrangePanel
+            open={arrangeOpen}
+            count={selectedNodes.length}
+            total={nodes.length}
+            canArrange={canEdit}
+            busy={arranging || deleting || undoHistory.undoing}
+            onSelectAll={selectAll}
+            onClear={clearSelection}
+            onArrange={alignSelection}
+          />
         )}
         {dashboard ? (
           <ExplorerCanvas
             key={workspaceHome ? "home" : project}
             scope={workspaceHome ? "home" : project}
+            arrangeOpen={arrangeOpen}
+            onError={notify}
             onDelete={
               workspaceHome
                 ? deleteProjects
@@ -1434,7 +1358,7 @@ function App() {
             contentTypes={nodeTypes}
             onInit={setFlow}
             onContentChange={onChanges}
-            onContentMove={(moved) => void savePositions(moved)}
+            onContentMove={savePositions}
             onDrop={workspaceHome ? undefined : dropOnCanvas}
             canDrop={!workspaceHome && canEdit}
             dropping={dropping}

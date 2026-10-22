@@ -696,6 +696,19 @@ test("project canvas accepts a native URL drag and files directly beside note ti
   await openProject();
   await expect(image).toBeVisible();
   await expect(video).toBeVisible();
+  await page.keyboard.press("Control+a");
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(5);
+  await page
+    .getByRole("button", { name: "Align and distribute", exact: true })
+    .click();
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(5);
+  await expect(
+    page.getByRole("button", { name: "Distribute horizontally", exact: true }),
+  ).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Align and distribute", exact: true })
+    .click();
   await video.getByRole("heading").click();
   await image.getByRole("heading").click({ modifiers: ["Shift"] });
   await page
@@ -728,4 +741,100 @@ test("project canvas accepts a native URL drag and files directly beside note ti
     image.getByRole("button", { name: "Download attachment" }).click(),
   ]);
   expect(download.suggestedFilename()).toBe("direct-image.png");
+});
+
+test("alignment and distribution stay available for Home projects and project note tiles", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("arrange-level-test")) {
+      localStorage.setItem("arrange-level-test", "1");
+      localStorage.setItem(
+        "stillroom-projects",
+        JSON.stringify([
+          {
+            id: "10000000-0000-4000-8000-000000000001",
+            title: "True Myth: Addison’s Midnight Walk",
+          },
+          { id: "second", title: "Second project" },
+          { id: "third", title: "Third project" },
+        ]),
+      );
+      localStorage.setItem(
+        "stillroom-layout:home",
+        JSON.stringify({
+          "10000000-0000-4000-8000-000000000001": { x: 100, y: 60 },
+          second: { x: 400, y: 130 },
+          third: { x: 800, y: 250 },
+        }),
+      );
+    }
+  });
+  await page.goto("/");
+  const home = page
+    .getByRole("navigation", { name: "Canvas tools" })
+    .getByRole("button", { name: "Home", exact: true });
+  await home.click();
+  await expect(page.locator(".explorer-tile")).toHaveCount(3);
+  const arrange = page.getByRole("button", {
+    name: "Align and distribute",
+    exact: true,
+  });
+  await expect(arrange).toBeEnabled();
+  await arrange.click();
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Align top", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Align top", exact: true }).click();
+  const tops = await page
+    .locator(".react-flow__node.selected")
+    .evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().top));
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1);
+  await page
+    .getByRole("button", { name: "Distribute horizontally", exact: true })
+    .click();
+  const layout = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("stillroom-layout:home") || "{}"),
+  );
+  const xs = Object.values(layout)
+    .map((v) => (v as { x: number }).x)
+    .sort((a, b) => a - b);
+  expect(xs[1] - xs[0]).toBeCloseTo(xs[2] - xs[1]);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", {
+      name: "Select True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .dblclick();
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
+  await expect(
+    page.getByRole("button", { name: "Distribute vertically", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Align left", exact: true }).click();
+  const lefts = await page
+    .locator(".react-flow__node.selected")
+    .evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().left));
+  expect(Math.max(...lefts) - Math.min(...lefts)).toBeLessThan(1);
+  await page
+    .getByRole("button", { name: "Distribute vertically", exact: true })
+    .click();
+  const noteLayout = await page.evaluate(() =>
+    JSON.parse(
+      localStorage.getItem(
+        "stillroom-layout:10000000-0000-4000-8000-000000000001",
+      ) || "{}",
+    ),
+  );
+  expect(Object.keys(noteLayout)).toHaveLength(3);
+  await page.reload();
+  await home.click();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("stillroom-layout:home") || "{}"),
+    ),
+  ).toEqual(layout);
 });
