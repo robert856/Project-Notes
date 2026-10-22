@@ -76,13 +76,11 @@ test("drops YouTube links and local files onto the canvas and preserves them", a
     d.setData("text/uri-list", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     return d;
   });
-  await page
-    .locator(".react-flow__pane")
-    .dispatchEvent("drop", {
-      dataTransfer: transfer,
-      clientX: 700,
-      clientY: 450,
-    });
+  await page.locator(".react-flow__pane").dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: 700,
+    clientY: 450,
+  });
   const video = page
     .locator(".react-flow__node")
     .filter({ hasText: "YouTube video" });
@@ -127,4 +125,129 @@ test("drops YouTube links and local files onto the canvas and preserves them", a
       });
     }),
   ).toBe("a little inspiration");
+});
+
+test("box-selects cards, moves the selection, aligns and preserves positions", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("selection-test")) {
+      localStorage.setItem("selection-test", "yes");
+      localStorage.setItem(
+        "stillroom-cards",
+        JSON.stringify([
+          {
+            id: "one",
+            board_id: "20000000-0000-4000-8000-000000000001",
+            title: "First idea",
+            content: "One",
+            kind: "text",
+            x: 40,
+            y: 40,
+            width: 240,
+            height: 180,
+            version: 1,
+            color: "white",
+          },
+          {
+            id: "two",
+            board_id: "20000000-0000-4000-8000-000000000001",
+            title: "Second idea",
+            content: "Two",
+            kind: "text",
+            x: 400,
+            y: 70,
+            width: 280,
+            height: 200,
+            version: 1,
+            color: "white",
+          },
+          {
+            id: "three",
+            board_id: "20000000-0000-4000-8000-000000000001",
+            title: "Third idea",
+            content: "Three",
+            kind: "text",
+            x: 750,
+            y: 400,
+            width: 240,
+            height: 180,
+            version: 1,
+            color: "white",
+          },
+        ]),
+      );
+    }
+  });
+  await page.goto("/");
+  const canvas = await page.locator(".canvas-wrap").boundingBox();
+  if (!canvas) throw Error("Canvas missing");
+  await page.mouse.move(canvas.x + 10, canvas.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + 650, canvas.y + 300, { steps: 15 });
+  await page.mouse.up();
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(2);
+  const first = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "First idea" });
+  const rect = await first.boundingBox();
+  if (!rect) throw Error("Card missing");
+  await page.mouse.move(rect.x + 50, rect.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(rect.x + 90, rect.y + 100, { steps: 10 });
+  await page.mouse.up();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem("stillroom-cards") || "[]")
+          .filter((c: { id: string; x: number }) =>
+            ["one", "two"].includes(c.id),
+          )
+          .map((c: { x: number }) => Math.round(c.x)),
+      ),
+    )
+    .toEqual([expect.any(Number), expect.any(Number)]);
+  const moved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("stillroom-cards") || "[]"),
+  );
+  expect(moved[0].x).toBeGreaterThan(65);
+  expect(moved[1].x - moved[0].x).toBeCloseTo(360);
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(2);
+  await page.getByRole("button", { name: "Align top", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const cards = JSON.parse(
+          localStorage.getItem("stillroom-cards") || "[]",
+        );
+        return cards[0].y === cards[1].y;
+      }),
+    )
+    .toBe(true);
+  await page.reload();
+  const positions = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("stillroom-cards") || "[]"),
+  );
+  expect(positions[0].y).toBe(positions[1].y);
+  expect(positions[2].x).toBe(750);
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
+  await page.getByRole("button", { name: "Align left", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Set(
+            JSON.parse(localStorage.getItem("stillroom-cards") || "[]").map(
+              (c: { x: number }) => c.x,
+            ),
+          ).size,
+      ),
+    )
+    .toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(0);
+  await page.keyboard.press("Control+a");
+  await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
 });

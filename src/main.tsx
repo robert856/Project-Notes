@@ -4,6 +4,7 @@ import {
   ReactFlow,
   Background,
   BackgroundVariant,
+  SelectionMode,
   Controls,
   NodeResizer,
   Handle,
@@ -44,6 +45,7 @@ import "@xyflow/react/dist/style.css";
 import "./style.css";
 import Markdown from "react-markdown";
 import { db, saveCard } from "./api";
+import { alignCards, type Alignment } from "./alignment";
 import { droppedUrl, youtubeId, storeLocalFile, readLocalFile } from "./drops";
 import {
   demoBoards,
@@ -419,14 +421,12 @@ function App() {
             throw inserted.error;
           }
           if (uploadedPath && typeof item !== "string") {
-            const attachment = await db
-              .from("attachments")
-              .insert({
-                project_id: project,
-                card_id: id,
-                path: uploadedPath,
-                name: item.name,
-              });
+            const attachment = await db.from("attachments").insert({
+              project_id: project,
+              card_id: id,
+              path: uploadedPath,
+              name: item.name,
+            });
             if (attachment.error) {
               await db.from("cards").delete().eq("id", id);
               await db.storage.from("attachments").remove([uploadedPath]);
@@ -447,7 +447,91 @@ function App() {
     }
   };
   const [nodes, setNodes] = useState<Node[]>([]);
-  useEffect(() => setNodes(makeNodes()), [cards, board, query, canEdit]);
+  useEffect(
+    () =>
+      setNodes((previous) => {
+        const selected = new Set(
+          previous.filter((n) => n.selected).map((n) => n.id),
+        );
+        return makeNodes().map((n) => ({ ...n, selected: selected.has(n.id) }));
+      }),
+    [cards, board, query, canEdit],
+  );
+  const [arranging, setArranging] = useState(false);
+  const selectedNodes = nodes.filter((n) => n.selected);
+  const selectAll = () =>
+    setNodes((previous) => previous.map((n) => ({ ...n, selected: true })));
+  const clearSelection = () =>
+    setNodes((previous) => previous.map((n) => ({ ...n, selected: false })));
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        dashboard ||
+        editing ||
+        modal ||
+        target.closest('input,textarea,select,[contenteditable="true"]')
+      )
+        return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        selectAll();
+      }
+      if (event.key === "Escape") clearSelection();
+    };
+    document.addEventListener("keydown", keyboard);
+    return () => document.removeEventListener("keydown", keyboard);
+  }, [dashboard, editing, modal]);
+  const savePositions = async (moved: Node[]) => {
+    if (!canEdit || arranging) return;
+    const changes = moved.flatMap((n) => {
+      const c = cards.find((c) => c.id === n.id);
+      return c && (c.x !== n.position.x || c.y !== n.position.y)
+        ? [{ ...c, x: n.position.x, y: n.position.y }]
+        : [];
+    });
+    if (!changes.length) return;
+    setArranging(true);
+    const results = await Promise.allSettled(changes.map((c) => saveCard(c)));
+    const saved = new Map<string, Card>();
+    const failures: string[] = [];
+    results.forEach((result) => {
+      if (result.status === "fulfilled")
+        saved.set(result.value.id, result.value);
+      else
+        failures.push(
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+        );
+    });
+    setCards((previous) => previous.map((c) => saved.get(c.id) || c));
+    if (failures.length)
+      notify(
+        `${saved.size} of ${changes.length} card positions saved. ${failures[0]} Unsaved cards returned to their previous positions.`,
+      );
+    setArranging(false);
+  };
+  const alignSelection = (direction: Alignment) => {
+    const rectangles = selectedNodes.map((n) => ({
+      id: n.id,
+      x: n.position.x,
+      y: n.position.y,
+      width: cards.find((c) => c.id === n.id)!.width,
+      height: cards.find((c) => c.id === n.id)!.height,
+    }));
+    const aligned = new Map(
+      alignCards(rectangles, direction).map((c) => [c.id, c]),
+    );
+    const moved = selectedNodes.map((n) => ({
+      ...n,
+      position: { x: aligned.get(n.id)!.x, y: aligned.get(n.id)!.y },
+    }));
+    setNodes((previous) =>
+      previous.map((n) => moved.find((v) => v.id === n.id) || n),
+    );
+    void savePositions(moved);
+  };
   const onChanges = (changes: NodeChange[]) =>
     setNodes((nds) => applyNodeChanges(changes, nds));
   const add = async (kind: Kind) => {
@@ -847,6 +931,47 @@ function App() {
             )}
           </div>
         </div>
+        {!dashboard && (
+          <div
+            className="selection-toolbar"
+            aria-label="Card selection and alignment"
+          >
+            <button onClick={selectAll} disabled={!nodes.length}>
+              Select all
+            </button>
+            <button onClick={clearSelection} disabled={!selectedNodes.length}>
+              Clear
+            </button>
+            <span className="selection-count" aria-live="polite">
+              {selectedNodes.length} selected
+            </span>
+            <span className="alignment-label">Align</span>
+            {(
+              [
+                "left",
+                "center",
+                "right",
+                "top",
+                "middle",
+                "bottom",
+              ] as Alignment[]
+            ).map((direction) => (
+              <button
+                key={direction}
+                aria-label={`Align ${direction}`}
+                disabled={!canEdit || arranging || selectedNodes.length < 2}
+                onClick={() => alignSelection(direction)}
+              >
+                {direction[0].toUpperCase() + direction.slice(1)}
+              </button>
+            ))}
+            <span className="selection-help">
+              {arranging
+                ? "Saving positions…"
+                : "Drag empty canvas to select · Shift-click to add"}
+            </span>
+          </div>
+        )}
         {dashboard ? (
           <div className="dashboard">
             <div className="section-heading">
@@ -921,6 +1046,12 @@ function App() {
         ) : (
           <div
             className={`canvas-wrap ${dropActive ? "drop-active" : ""}`}
+            onPointerDownCapture={(event) => {
+              if (arranging) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }}
             onDragOver={(event) => {
               event.preventDefault();
               event.dataTransfer.dropEffect = canEdit ? "copy" : "none";
@@ -951,10 +1082,14 @@ function App() {
               edges={edges}
               nodeTypes={nodeTypes}
               onNodesChange={onChanges}
-              onNodeDragStop={(_e, n) => {
-                const c = cards.find((c) => c.id === n.id);
-                if (c) void persist({ ...c, x: n.position.x, y: n.position.y });
-              }}
+              selectionOnDrag
+              selectionMode={SelectionMode.Partial}
+              panOnDrag={[1, 2]}
+              multiSelectionKeyCode={["Shift", "Meta", "Control"]}
+              onNodeDragStop={(_event, node, moved) =>
+                void savePositions(moved.length ? moved : [node])
+              }
+              onSelectionDragStop={(_event, moved) => void savePositions(moved)}
               onNodeClick={() => {}}
               onNodesDelete={() => {}}
               deleteKeyCode={null}

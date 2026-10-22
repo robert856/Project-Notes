@@ -1106,4 +1106,58 @@ h1 {
   font-size: 12px;
 }
 
-.drop-active iframe { pointer-events: none; }
+.drop-active iframe {
+  pointer-events: none;
+}
+.selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 24px;
+  min-height: 44px;
+  border-bottom: 1px solid #e2e4dc;
+  background: #fbfcf8;
+  overflow-x: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.selection-toolbar button {
+  font-size: 11px;
+  padding: 6px 8px;
+  border: 1px solid #dfe3d6;
+  border-radius: 4px;
+  background: #fffef9;
+}
+.selection-toolbar button:hover:not(:disabled) {
+  background: #e9eedf;
+  color: #4d603c;
+}
+.selection-count {
+  font-size: 10px;
+  color: #7e886f;
+  padding: 0 10px;
+}
+.alignment-label {
+  font-size: 10px;
+  color: #929a85;
+  border-left: 1px solid #dfe3d6;
+  padding: 0 5px 0 12px;
+}
+.selection-help {
+  font-size: 10px;
+  color: #919a83;
+  margin-left: auto;
+  padding-left: 15px;
+}
+.react-flow__selection {
+  background: #839c5a15 !important;
+  border: 1px solid #7c925e !important;
+}
+@media (max-width: 1100px) {
+  .selection-help {
+    display: none;
+  }
+  .selection-toolbar {
+    padding: 8px 12px;
+  }
+}
