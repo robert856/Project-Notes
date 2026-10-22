@@ -49,8 +49,15 @@ import "./style.css";
 import Markdown from "react-markdown";
 import { ArrangePanel } from "./ArrangePanel";
 import { ExplorerCanvas } from "./ExplorerCanvas";
+import { hasLocalWorkspace, importLocalWorkspace } from "./importLocal";
 import { useWorkspaceUndo } from "./undo";
-import { db, saveCard, trashItems, restoreWorkspace } from "./api";
+import {
+  db,
+  saveCard,
+  trashItems,
+  restoreWorkspace,
+  url as supabaseUrl,
+} from "./api";
 import { alignCards, distributeCards, type Alignment } from "./alignment";
 import {
   droppedUrl,
@@ -263,6 +270,39 @@ function App() {
   const canEdit = workspaceHome || !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
+  const [importing, setImporting] = useState(false);
+  const [importDone, setImportDone] = useState(false);
+  useEffect(() => {
+    setImportDone(
+      Boolean(
+        user &&
+        localStorage.getItem(`stillroom-imported:${user}:${supabaseUrl}`),
+      ),
+    );
+  }, [user]);
+  const importSaved = async () => {
+    if (!db || !user || importing) return;
+    setImporting(true);
+    try {
+      const count = await importLocalWorkspace(db, user, supabaseUrl, (count) =>
+        notify(`Copying browser notes to your account: ${count} copied…`),
+      );
+      setImportDone(true);
+      await load();
+      notify(
+        `Imported ${count} notes. Your original browser data is still preserved.`,
+      );
+    } catch (error) {
+      notify(
+        "Import paused: " +
+          (error as Error).message +
+          " You can retry; the original browser data is unchanged.",
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const undoHistory = useWorkspaceUndo(
     { projects, boards, cards },
     restoreWorkspace,
@@ -1448,6 +1488,16 @@ function App() {
             )}
           </div>
           <div className="top-actions">
+            {db && user && hasLocalWorkspace() && !importDone && (
+              <button
+                className="button"
+                disabled={importing}
+                onClick={() => void importSaved()}
+              >
+                {importing ? "Importing…" : "Import browser projects"}
+              </button>
+            )}
+
             <label className="search">
               <Search size={15} />
               <input

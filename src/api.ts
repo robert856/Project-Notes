@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Card } from "./model";
 import config from "./supabase-config.json";
 const env = import.meta.env;
-const url = env.VITE_SUPABASE_URL || config.url;
+export const url = env.VITE_SUPABASE_URL || config.url;
 const publicKey = env.VITE_SUPABASE_ANON_KEY || config.publishableKey;
 export const db =
   env.VITE_LOCAL_DEMO === "true"

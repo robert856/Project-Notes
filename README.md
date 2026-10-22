@@ -10,13 +10,13 @@ npm run dev
 npm test
 npm run build
 ```
-Without environment variables, the app explicitly runs as a **local demo**. Cards, boards and projects are stored in this browser’s localStorage. This is not shared data or an authenticated workspace. Clearing browser storage removes demo edits. Connections are session-only. Dropped files are kept in this browser’s IndexedDB, not on a shared server. Clearing site data removes those files. No account is needed for the demo.
+When neither environment variables nor the public `src/supabase-config.json` connection are present, the app runs as a **local demo**. Set `VITE_LOCAL_DEMO=true` to force demo mode for development and browser tests. Cards, boards and projects are stored in this browser’s localStorage. This is not shared data or an authenticated workspace. Clearing browser storage removes demo edits. Connections are session-only. Dropped files are kept in this browser’s IndexedDB, not on a shared server. Clearing site data removes those files. No account is needed for the demo.
 
 ## Connect Supabase
 1. Create a Supabase project in your own account. In the SQL editor run `supabase/migrations/001_initial.sql` then `002_reversible_delete.sql`, `003_project_canvas.sql`, `004_project_title_undo.sql`, and `005_home_canvas.sql` in order, or apply them with the Supabase CLI. Existing installations must apply migration 002 before using deletion/undo. Do not run it against an existing unrelated schema.
 2. Copy `.env.example` to `.env.local`. Set `VITE_SUPABASE_URL` and the public anon/publishable client key from the project API settings. Never use a service-role or secret key. Vite variables are embedded in the public bundle.
 3. In Authentication → URL configuration, set Site URL to your production repository URL, for example `https://robert856.github.io/Project-Notes/`. Add that exact URL and `http://localhost:5173/` to the permitted redirect URLs. Enable email authentication and configure production SMTP for reliable magic-link delivery. Keep email verification enabled.
-4. Restart Vite. Use the sign-in dialog to request a magic link. Once signed in, use the + beside Projects to create your first project, then create boards. Demo content is intentionally not uploaded to your account.
+4. Restart Vite. Use the sign-in dialog to request a magic link. Once signed in, use the + beside Projects to create your first project, then create boards. Use **Import browser projects** after signing in to copy local projects, notes, and private files into your account. The import is resumable and preserves browser originals.
 5. The migration creates a private `attachments` bucket with a 20 MiB limit. File paths are scoped to project IDs; downloads use 60-second signed URLs. Public image URL cards are a separate option: their external hosts receive normal browser requests.
 6. Owners can create invitations with owner, editor, or viewer roles. Invitation creation records an email in the database; it does **not** send an invitation email. Share the application URL separately. The collaborator signs in with the matching verified email, and the app claims the invitation. Existing members retain their current role; this MVP does not provide member removal or role changes.
 
@@ -32,11 +32,13 @@ The frontend is static; **GitHub Pages hosts the frontend while Supabase stores 
 
 1. Commit and push to `main` in `robert856/Project-Notes`.
 2. In GitHub Settings → Pages choose **GitHub Actions** as the source.
-3. Add repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. These are public client configuration, not service credentials. Leaving them unset deploys the local demo.
+3. Add repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. These are public client configuration, not service credentials. The committed `src/supabase-config.json` supplies the production public connection if these variables are unset.
 4. The included workflow installs the lockfile, tests, builds, and deploys `dist`. Vite uses `base: './'`, generating relative asset paths suitable for `/Project-Notes/` and custom domains. The app does not require server-side route rewrites.
 5. Verify the deployed URL and sign-in redirect after the workflow succeeds.
 
-Hosted Supabase provisioning, migration application, and production authentication have not been verified. GitHub Pages deployment is handled by the included workflow; check the latest run for its current result.
+Hosted setup on 2026-10-22: all five migrations applied; RLS enabled on six application tables and private attachment bucket verified; connected frontend deployed successfully. Authentication configuration is blocked: the scoped management token lacks `project_admin_write`, which Supabase requires in addition to `auth_config_write`. Production email sign-in and two-user sharing still require verification.
+
+The **Connect Supabase and deploy** workflow uses the repository secret `SUPABASE_ACCESS_TOKEN` to apply missing migrations, verify RLS/private storage, configure authentication when authorized, and commit only the public frontend URL/publishable key. Management/service credentials never enter the client bundle. Supabase’s default email sender restricts delivery to project-team addresses; configure custom SMTP before inviting other people.
 
 ## Current scope
 Movable and resizable cards, Markdown notes (raw HTML disabled), external images, links, checklists, private file uploads, board creation/rename/duplication/deletion, card duplication/deletion, project creation, role-scoped collaboration, and title/content search. Mobile navigation and canvas pan/zoom are supported; desktop is the primary experience.
@@ -77,7 +79,7 @@ Migration 002 uses `deleted_at` to hide data while retaining memberships, attach
 ## Direct drops onto project canvases
 The project canvas (where its container-note tiles appear) also accepts dragged web links, YouTube URLs, and local files. Notes can be created there using the left rail without first opening a container note. Dropped content renders alongside the tiles and supports editing, dragging, resizing, deletion and Undo. Existing open-note drops keep working. Home also accepts direct content drops and toolbar-created boards/notes (migration 005 in connected mode).
 
-Migration 003 adds a hidden backing container per project (`boards.is_project_canvas`) with an authorized, idempotent `get_project_canvas` function. It reuses the existing project membership, note version checking, storage, and Undo policies. Existing connected installations must apply migrations 002 and 003; no hosted migration was applied automatically. Local demo mode needs no configuration.
+Migration 003 adds a hidden backing container per project (`boards.is_project_canvas`) with an authorized, idempotent `get_project_canvas` function. It reuses the existing project membership, note version checking, storage, and Undo policies. Existing connected installations must apply migrations 002 and 003; the hosted Stillroom project has these migrations applied. Local demo mode needs no configuration.
 
 Alignment and distribution are available through **Arrange** on Home project tiles, project note tiles, mixed tile/content selections, and opened content notes. Align requires at least two selected items; distribute requires three. Tile positions remain personal browser layout, while shared content-note positions use version-checked database saves.
 
@@ -92,6 +94,6 @@ On Home, click a project title beneath its icon to rename it inline. Enter or cl
 ## Drag tools onto Home or project canvases
 Both **Note** and **Board** tools can be dragged from the left rail. Drop a Note to create content at that exact position; its editor opens. Drop a Board to create an “Untitled board” tile without a naming dialog. Click the tile title to rename it later. Both work directly on Home and on project canvases. Dropping a Board while inside a content canvas creates it on the enclosing project canvas.
 
-Migration 005 supplies a personal Home storage container through `get_home_canvas`, using existing RLS and storage policies. The backing project is excluded from the project tile list. Each signed-in user gets their own Home container; ownership is assigned by the server, not client project edits. Home content and boards persist in browser storage in demo mode, and Supabase when configured. Apply migration 005 after the earlier migrations for connected use; it has not been applied to a hosted account here.
+Migration 005 supplies a personal Home storage container through `get_home_canvas`, using existing RLS and storage policies. The backing project is excluded from the project tile list. Each signed-in user gets their own Home container; ownership is assigned by the server, not client project edits. Home content and boards persist in browser storage in demo mode, and Supabase when configured. Apply migration 005 after the earlier migrations for connected use; it was applied to the hosted Stillroom project on 2026-10-22.
 
 Dragging onto a canvas is intentionally quiet: no drop-here wording, tinted overlay, dashed border, or drag-triggered layout changes. Releasing a supported item places it on the canvas. Embedded-player hit testing is temporarily disabled invisibly during external drags so players do not swallow the drop.
