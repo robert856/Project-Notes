@@ -18,6 +18,7 @@ beforeAll(async () => {
     "001_initial.sql",
     "002_reversible_delete.sql",
     "003_project_canvas.sql",
+    "004_project_title_undo.sql",
   ])
     await pg.exec(
       await readFile(
@@ -184,4 +185,43 @@ it("creates one authorized shared project canvas and denies viewers", async () =
   await pg.query("select set_config('request.jwt.claim.sub',$1,false)", [
     owner,
   ]);
+});
+
+it("undoes an owner project rename and rejects stale project-title undo", async () => {
+  const before = await snapshot();
+  await pg.query("update public.projects set title=$1 where id=$2", [
+    "Renamed project",
+    project,
+  ]);
+  const after = await snapshot();
+  await pg.query("select public.undo_workspace($1,$2)", [
+    JSON.stringify(before),
+    JSON.stringify(after),
+  ]);
+  expect(
+    (
+      await pg.query<{ title: string }>(
+        "select title from public.projects where id=$1",
+        [project],
+      )
+    ).rows[0].title,
+  ).toBe("Test project");
+  await pg.query("update public.projects set title=$1 where id=$2", [
+    "A newer project title",
+    project,
+  ]);
+  await expect(
+    pg.query("select public.undo_workspace($1,$2)", [
+      JSON.stringify(before),
+      JSON.stringify(after),
+    ]),
+  ).rejects.toThrow("CONFLICT");
+  expect(
+    (
+      await pg.query<{ title: string }>(
+        "select title from public.projects where id=$1",
+        [project],
+      )
+    ).rows[0].title,
+  ).toBe("A newer project title");
 });

@@ -900,6 +900,31 @@ function App() {
     setBoard(b.id);
     setDashboard(false);
   };
+  const renameProject = async (id: string, title: string) => {
+    const previous = projects.find((p) => p.id === id);
+    const trimmed = title.trim();
+    if (!previous || !trimmed) return false;
+    if (trimmed === previous.title) return true;
+    if (db) {
+      const { data, error } = await db
+        .from("projects")
+        .update({ title: trimmed })
+        .eq("id", id)
+        .eq("title", previous.title)
+        .select("id");
+      if (error || !data?.length) {
+        notify(
+          error?.message ||
+            "The title changed or you do not own this project. Refresh before renaming it.",
+        );
+        return false;
+      }
+    }
+    setProjects((previous) =>
+      previous.map((p) => (p.id === id ? { ...p, title: trimmed } : p)),
+    );
+    return true;
+  };
   const renameBoard = async (id: string, title: string) => {
     const previous = boards.find((b) => b.id === id);
     const trimmed = title.trim();
@@ -1390,7 +1415,9 @@ function App() {
             arrangeOpen={arrangeOpen}
             onArrangeClose={() => setArrangeOpen(false)}
             onError={notify}
-            onRename={!workspaceHome && canEdit ? renameBoard : undefined}
+            onRename={
+              workspaceHome ? renameProject : canEdit ? renameBoard : undefined
+            }
             onDelete={
               workspaceHome
                 ? deleteProjects

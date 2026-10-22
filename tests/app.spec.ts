@@ -1087,3 +1087,61 @@ test("always starts on Home on first visit and after refreshing without losing n
     page.getByRole("heading", { name: "Keep my note", exact: true }),
   ).toBeVisible();
 });
+
+test("Home project titles rename inline, persist and support cancel and Undo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "Rename True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .click();
+  const title = page.getByRole("textbox", {
+    name: "Project title",
+    exact: true,
+  });
+  await expect(title).toBeFocused();
+  await title.fill("My creative projects");
+  await title.press("Enter");
+  await expect(
+    page.getByRole("button", {
+      name: "Rename My creative projects",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Home", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Rename My creative projects", exact: true })
+    .click();
+  await title.fill("Cancel this");
+  await title.press("Escape");
+  await expect(
+    page.getByRole("button", {
+      name: "Rename My creative projects",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Rename My creative projects", exact: true })
+    .click();
+  await title.fill("A new title");
+  await page.getByRole("heading", { name: "Home", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Rename A new title", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Control+z");
+  await expect(
+    page.getByRole("button", {
+      name: "Rename My creative projects",
+      exact: true,
+    }),
+  ).toBeVisible();
+});

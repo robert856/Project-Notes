@@ -74,7 +74,7 @@ function Tile({ data }: NodeProps) {
         <input
           ref={input}
           className="nodrag nopan tile-title-input"
-          aria-label="Note title"
+          aria-label={item.kind === "project" ? "Project title" : "Note title"}
           value={draft}
           maxLength={200}
           disabled={saving}
@@ -305,7 +305,7 @@ export function ExplorerCanvas({
           item,
           index,
           open: onOpen,
-          rename: item.kind === "board" ? onRename : undefined,
+          rename: onRename,
         },
         style: { width: 155 },
       })),
