@@ -64,6 +64,7 @@ export function ExplorerCanvas({
   canDrop = false,
   dropping = false,
   arrangeOpen = false,
+  onArrangeClose,
   onError,
 }: {
   items: ExplorerItem[];
@@ -83,6 +84,7 @@ export function ExplorerCanvas({
   canDrop?: boolean;
   dropping?: boolean;
   arrangeOpen?: boolean;
+  onArrangeClose: () => void;
   onError: (message: string) => void;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -320,6 +322,7 @@ export function ExplorerCanvas({
       </ReactFlow>
       <ArrangePanel
         open={arrangeOpen}
+        onClose={onArrangeClose}
         count={selected.length}
         total={nodes.length}
         canArrange={!selected.some((n) => n.type !== "tile" && !canDrop)}

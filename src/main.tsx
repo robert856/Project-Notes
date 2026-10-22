@@ -256,6 +256,10 @@ function App() {
   }, [projects, boards, project, board]);
   const [workspaceHome, setWorkspaceHome] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
+  useEffect(
+    () => setArrangeOpen(false),
+    [project, board, dashboard, workspaceHome],
+  );
   const canEdit = !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
@@ -1007,6 +1011,7 @@ function App() {
         <div className="rail-divider" />
         <button
           className={`rail-tool ${arrangeOpen ? "active" : ""}`}
+          data-arrange-trigger="true"
           title="Align and distribute"
           aria-label="Align and distribute"
           onClick={() => setArrangeOpen(!arrangeOpen)}
@@ -1330,6 +1335,7 @@ function App() {
             onSelectAll={selectAll}
             onClear={clearSelection}
             onArrange={alignSelection}
+            onClose={() => setArrangeOpen(false)}
           />
         )}
         {dashboard ? (
@@ -1337,6 +1343,7 @@ function App() {
             key={workspaceHome ? "home" : project}
             scope={workspaceHome ? "home" : project}
             arrangeOpen={arrangeOpen}
+            onArrangeClose={() => setArrangeOpen(false)}
             onError={notify}
             onDelete={
               workspaceHome

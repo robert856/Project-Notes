@@ -1,4 +1,18 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+async function openArrange(page: Page) {
+  if (
+    !(await page
+      .getByRole("toolbar", {
+        name: "Selection, alignment and distribution",
+        exact: true,
+      })
+      .isVisible())
+  )
+    await page
+      .getByRole("button", { name: "Align and distribute", exact: true })
+      .click();
+}
 test("create, edit, resize, move, persist and delete a card", async ({
   page,
 }) => {
@@ -218,6 +232,7 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
   await page
     .getByRole("button", { name: "Align and distribute", exact: true })
     .click();
+  await openArrange(page);
   await page.getByRole("button", { name: "Align top", exact: true }).click();
   await expect
     .poll(() =>
@@ -243,8 +258,10 @@ test("box-selects cards, moves the selection, aligns and preserves positions", a
     await page
       .getByRole("button", { name: "Align and distribute", exact: true })
       .click();
+  await openArrange(page);
   await page.getByRole("button", { name: "Select all", exact: true }).click();
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
+  await openArrange(page);
   await page.getByRole("button", { name: "Align left", exact: true }).click();
   await expect
     .poll(() =>
@@ -408,7 +425,9 @@ test("distributes cards in both directions and saves the spacing", async ({
     await page
       .getByRole("button", { name: "Align and distribute", exact: true })
       .click();
+  await openArrange(page);
   await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await openArrange(page);
   await page
     .getByRole("button", { name: "Distribute horizontally", exact: true })
     .click();
@@ -433,6 +452,7 @@ test("distributes cards in both directions and saves the spacing", async ({
       );
     }, axis);
   await expect.poll(() => equalGaps("x")).toBe(true);
+  await openArrange(page);
   await page
     .getByRole("button", { name: "Distribute vertically", exact: true })
     .click();
@@ -702,6 +722,7 @@ test("project canvas accepts a native URL drag and files directly beside note ti
     .getByRole("button", { name: "Align and distribute", exact: true })
     .click();
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(5);
+  await openArrange(page);
   await expect(
     page.getByRole("button", { name: "Distribute horizontally", exact: true }),
   ).toBeEnabled();
@@ -714,9 +735,11 @@ test("project canvas accepts a native URL drag and files directly beside note ti
   await page
     .getByRole("button", { name: "Align and distribute", exact: true })
     .click();
+  await openArrange(page);
   await expect(
     page.getByRole("button", { name: "Align left", exact: true }),
   ).toBeEnabled();
+  await openArrange(page);
   await page.getByRole("button", { name: "Align left", exact: true }).click();
   await expect
     .poll(() =>
@@ -783,15 +806,19 @@ test("alignment and distribution stay available for Home projects and project no
   });
   await expect(arrange).toBeEnabled();
   await arrange.click();
+  await openArrange(page);
   await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await openArrange(page);
   await expect(
     page.getByRole("button", { name: "Align top", exact: true }),
   ).toBeEnabled();
+  await openArrange(page);
   await page.getByRole("button", { name: "Align top", exact: true }).click();
   const tops = await page
     .locator(".react-flow__node.selected")
     .evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().top));
   expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1);
+  await openArrange(page);
   await page
     .getByRole("button", { name: "Distribute horizontally", exact: true })
     .click();
@@ -809,16 +836,20 @@ test("alignment and distribution stay available for Home projects and project no
       exact: true,
     })
     .dblclick();
+  await openArrange(page);
   await page.getByRole("button", { name: "Select all", exact: true }).click();
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(3);
+  await openArrange(page);
   await expect(
     page.getByRole("button", { name: "Distribute vertically", exact: true }),
   ).toBeEnabled();
+  await openArrange(page);
   await page.getByRole("button", { name: "Align left", exact: true }).click();
   const lefts = await page
     .locator(".react-flow__node.selected")
     .evaluateAll((nodes) => nodes.map((n) => n.getBoundingClientRect().left));
   expect(Math.max(...lefts) - Math.min(...lefts)).toBeLessThan(1);
+  await openArrange(page);
   await page
     .getByRole("button", { name: "Distribute vertically", exact: true })
     .click();
@@ -837,4 +868,61 @@ test("alignment and distribution stay available for Home projects and project no
       JSON.parse(localStorage.getItem("stillroom-layout:home") || "{}"),
     ),
   ).toEqual(layout);
+});
+
+test("Arrange dismisses after actions, outside click, Escape, navigation and window blur", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".canvas-card")).toHaveCount(8);
+  const panel = page.getByRole("toolbar", {
+    name: "Selection, alignment and distribution",
+    exact: true,
+  });
+  const trigger = page.getByRole("button", {
+    name: "Align and distribute",
+    exact: true,
+  });
+  await openArrange(page);
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await page.getByRole("button", { name: "Align left", exact: true }).click();
+  await expect(panel).toBeHidden();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await openArrange(page);
+  await page
+    .getByRole("button", { name: "Distribute vertically", exact: true })
+    .click();
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await page
+    .getByRole("heading", { name: "The story room", exact: true })
+    .click();
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await trigger.click();
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await page
+    .getByRole("navigation", { name: "Canvas tools" })
+    .getByRole("button", { name: "Home", exact: true })
+    .click();
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await page
+    .getByRole("button", {
+      name: "Select True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .dblclick();
+  await expect(panel).toBeHidden();
+  await openArrange(page);
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await page.keyboard.press("Delete");
+  await expect(panel).toBeHidden();
 });

@@ -80,3 +80,5 @@ The project canvas (where its container-note tiles appear) also accepts dragged 
 Migration 003 adds a hidden backing container per project (`boards.is_project_canvas`) with an authorized, idempotent `get_project_canvas` function. It reuses the existing project membership, note version checking, storage, and Undo policies. Existing connected installations must apply migrations 002 and 003; no hosted migration was applied automatically. Local demo mode needs no configuration.
 
 Alignment and distribution are available through **Arrange** on Home project tiles, project note tiles, mixed tile/content selections, and opened content notes. Align requires at least two selected items; distribute requires three. Tile positions remain personal browser layout, while shared content-note positions use version-checked database saves.
+
+The Arrange panel dismisses after applying an alignment/distribution, clicking outside, pressing Escape, clearing the selection, navigating to another canvas, or switching away from the browser tab/window. Use Arrange again for another operation; selection stays available after an action.
