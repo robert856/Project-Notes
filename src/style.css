@@ -1597,3 +1597,36 @@ h1 {
     top: 330px;
   }
 }
+.explorer-tile .tile-title {
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.5;
+  padding: 0 4px;
+  border-radius: 4px;
+  max-width: 145px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.explorer-tile .tile-title:hover {
+  background: #e4e9dc;
+  color: #4f633e;
+}
+.tile-title-input {
+  font: inherit;
+  font-size: 12px;
+  width: 145px;
+  padding: 4px 5px;
+  border: 1px solid #8ca374;
+  border-radius: 4px;
+  background: #fffef9;
+  text-align: center;
+  color: #3b4e30;
+  outline: 2px solid #82996922;
+}
+.rail-tool[draggable="true"] {
+  cursor: grab;
+}
+.rail-tool[draggable="true"]:active {
+  cursor: grabbing;
+}

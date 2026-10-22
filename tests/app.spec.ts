@@ -926,3 +926,112 @@ test("Arrange dismisses after actions, outside click, Escape, navigation and win
   await page.keyboard.press("Delete");
   await expect(panel).toBeHidden();
 });
+
+test("drags the left Note tool onto an opened canvas and a project canvas", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".canvas-card")).toHaveCount(8);
+  const tool = page.getByTitle("Add text", { exact: true });
+  const canvas = page.locator(".canvas-wrap");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw Error("Missing canvas");
+  await tool.dragTo(canvas, { targetPosition: { x: 500, y: 300 } });
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
+    "Untitled note",
+  );
+  await page.getByRole("button", { name: "Close editor", exact: true }).click();
+  const note = page
+    .locator(".react-flow__node")
+    .filter({ hasText: "Untitled note" });
+  await expect(note).toBeVisible();
+  const position = await note.boundingBox();
+  expect(position!.x).toBeCloseTo(bounds.x + 500, 0);
+  expect(position!.y).toBeCloseTo(bounds.y + 300, 0);
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("stillroom-cards") || "[]").filter(
+          (n: { title: string }) => n.title === "Untitled note",
+        ).length,
+    ),
+  ).toBe(1);
+  await page
+    .getByRole("main")
+    .getByRole("button", {
+      name: "True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .click();
+  await tool.dragTo(page.locator(".explorer-canvas"), {
+    targetPosition: { x: 650, y: 350 },
+  });
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
+    "Untitled note",
+  );
+  await page.getByRole("button", { name: "Close editor", exact: true }).click();
+  await expect(
+    page.locator(".canvas-card").filter({ hasText: "Untitled note" }),
+  ).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("stillroom-cards") || "[]").filter(
+          (n: { title: string }) => n.title === "Untitled note",
+        ).length,
+    ),
+  ).toBe(2);
+});
+
+test("renames a board by clicking its title, saves on Enter or blur, and cancels on Escape", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const openProject = () =>
+    page
+      .getByRole("main")
+      .getByRole("button", {
+        name: "True Myth: Addison’s Midnight Walk",
+        exact: true,
+      })
+      .click();
+  await openProject();
+  await page
+    .getByRole("button", { name: "Rename The story room", exact: true })
+    .click();
+  const input = page.getByRole("textbox", { name: "Note title", exact: true });
+  await expect(input).toBeFocused();
+  await input.fill("Research board");
+  await input.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Rename Research board", exact: true }),
+  ).toBeVisible();
+  await expect(input).toHaveCount(0);
+  await page.reload();
+  await openProject();
+  await page
+    .getByRole("button", { name: "Rename Research board", exact: true })
+    .click();
+  await input.fill("Do not save");
+  await input.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Rename Research board", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Rename Research board", exact: true })
+    .click();
+  await input.fill("Visual research");
+  await page
+    .getByRole("heading", {
+      name: "True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Rename Visual research", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Control+z");
+  await expect(
+    page.getByRole("button", { name: "Rename Research board", exact: true }),
+  ).toBeVisible();
+});

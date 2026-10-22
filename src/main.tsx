@@ -517,6 +517,13 @@ function App() {
       x: event.clientX,
       y: event.clientY,
     });
+    const tool = event.dataTransfer.getData("application/x-stillroom-tool");
+    if (
+      ["text", "link", "checklist", "image", "file", "group"].includes(tool)
+    ) {
+      await add(tool as Kind, point);
+      return;
+    }
     const files = Array.from(event.dataTransfer.files);
     if (!files.length) {
       for (const item of Array.from(event.dataTransfer.items)) {
@@ -722,7 +729,7 @@ function App() {
   };
   const onChanges = (changes: NodeChange[]) =>
     setNodes((nds) => applyNodeChanges(changes, nds));
-  const add = async (kind: Kind) => {
+  const add = async (kind: Kind, position?: { x: number; y: number }) => {
     if (!canEdit) return;
     if (workspaceHome) {
       notify("Open a project to add notes.");
@@ -738,11 +745,16 @@ function App() {
     const c: Card = {
       id: crypto.randomUUID(),
       board_id: targetBoard,
-      title: kind === "checklist" ? "A fresh list" : "Untitled " + kind,
+      title:
+        kind === "checklist"
+          ? "A fresh list"
+          : kind === "text"
+            ? "Untitled note"
+            : "Untitled " + kind,
       content: kind === "checklist" ? "[ ] Your first task" : "",
       kind,
-      x: 160 + Math.random() * 200,
-      y: 120 + Math.random() * 150,
+      x: position?.x ?? 160 + Math.random() * 200,
+      y: position?.y ?? 120 + Math.random() * 150,
       width: 280,
       height: 230,
       version: 1,
@@ -888,6 +900,30 @@ function App() {
     setBoard(b.id);
     setDashboard(false);
   };
+  const renameBoard = async (id: string, title: string) => {
+    const previous = boards.find((b) => b.id === id);
+    const trimmed = title.trim();
+    if (!previous || !canEdit || !trimmed) return false;
+    if (trimmed === previous.title) return true;
+    if (db) {
+      const { data, error } = await db
+        .from("boards")
+        .update({ title: trimmed })
+        .eq("id", id)
+        .eq("title", previous.title)
+        .select("id");
+      if (error || !data?.length) {
+        notify(
+          error?.message || "This title changed. Refresh before renaming it.",
+        );
+        return false;
+      }
+    }
+    setBoards((previous) =>
+      previous.map((b) => (b.id === id ? { ...b, title: trimmed } : b)),
+    );
+    return true;
+  };
   const removeBoard = () => deleteBoards([board]);
   const duplicateCard = async (c: Card) => {
     const copy = {
@@ -987,6 +1023,15 @@ function App() {
               key={kind}
               title={`Add ${kind}`}
               disabled={workspaceHome || !canEdit}
+              draggable={!workspaceHome && canEdit}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(
+                  "application/x-stillroom-tool",
+                  kind,
+                );
+                event.dataTransfer.effectAllowed = "copy";
+                setArrangeOpen(false);
+              }}
               onClick={() => void add(kind)}
             >
               <Icon size={21} strokeWidth={1.5} />
@@ -1345,6 +1390,7 @@ function App() {
             arrangeOpen={arrangeOpen}
             onArrangeClose={() => setArrangeOpen(false)}
             onError={notify}
+            onRename={!workspaceHome && canEdit ? renameBoard : undefined}
             onDelete={
               workspaceHome
                 ? deleteProjects
@@ -1528,23 +1574,7 @@ function App() {
                     onClick={() => {
                       const name = prompt("Note title", current.title);
                       if (!name?.trim()) return;
-                      void (async () => {
-                        if (db) {
-                          const { error } = await db
-                            .from("boards")
-                            .update({ title: name.trim() })
-                            .eq("id", board);
-                          if (error) {
-                            notify(error.message);
-                            return;
-                          }
-                        }
-                        setBoards((v) =>
-                          v.map((b) =>
-                            b.id === board ? { ...b, title: name.trim() } : b,
-                          ),
-                        );
-                      })();
+                      void renameBoard(board, name);
                     }}
                   >
                     Rename

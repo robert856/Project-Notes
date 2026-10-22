@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useState, useRef, type DragEvent } from "react";
 import {
   ReactFlow,
   Background,
@@ -25,6 +25,36 @@ export interface ExplorerItem {
 function Tile({ data }: NodeProps) {
   const item = data.item as ExplorerItem;
   const Icon = item.kind === "project" ? Folder : LayoutGrid;
+  const rename = data.rename as
+    ((id: string, title: string) => Promise<boolean>) | undefined;
+  const [renaming, setRenaming] = useState(false),
+    [draft, setDraft] = useState(item.title),
+    [saving, setSaving] = useState(false);
+  const committing = useRef(false),
+    cancelled = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (renaming) {
+      input.current?.focus();
+      input.current?.select();
+    }
+  }, [renaming]);
+  const commit = async () => {
+    if (committing.current || cancelled.current || !rename) return;
+    const title = draft.trim();
+    if (!title) {
+      setRenaming(false);
+      return;
+    }
+    committing.current = true;
+    setSaving(true);
+    try {
+      if (await rename(item.id, title)) setRenaming(false);
+    } finally {
+      committing.current = false;
+      setSaving(false);
+    }
+  };
   return (
     <div className="explorer-tile">
       <button
@@ -40,7 +70,48 @@ function Tile({ data }: NodeProps) {
         <Icon size={30} strokeWidth={1.5} />
         <ArrowUpRight className="tile-arrow" size={13} />
       </button>
-      <strong>{item.title}</strong>
+      {renaming ? (
+        <input
+          ref={input}
+          className="nodrag nopan tile-title-input"
+          aria-label="Note title"
+          value={draft}
+          maxLength={200}
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onBlur={() => void commit()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void commit();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancelled.current = true;
+              setRenaming(false);
+            }
+          }}
+        />
+      ) : rename ? (
+        <button
+          className="nodrag tile-title"
+          title="Click to rename"
+          aria-label={`Rename ${item.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            cancelled.current = false;
+            setDraft(item.title);
+            setRenaming(true);
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          {item.title}
+        </button>
+      ) : (
+        <strong>{item.title}</strong>
+      )}
       <small>{item.detail}</small>
     </div>
   );
@@ -66,6 +137,7 @@ export function ExplorerCanvas({
   arrangeOpen = false,
   onArrangeClose,
   onError,
+  onRename,
 }: {
   items: ExplorerItem[];
   scope: string;
@@ -86,6 +158,7 @@ export function ExplorerCanvas({
   arrangeOpen?: boolean;
   onArrangeClose: () => void;
   onError: (message: string) => void;
+  onRename?: (id: string, title: string) => Promise<boolean>;
 }) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -228,7 +301,12 @@ export function ExplorerCanvas({
           x: 100 + (index % 5) * 200,
           y: 95 + Math.floor(index / 5) * 200,
         },
-        data: { item, index, open: onOpen },
+        data: {
+          item,
+          index,
+          open: onOpen,
+          rename: item.kind === "board" ? onRename : undefined,
+        },
         style: { width: 155 },
       })),
       ...contentNodes.map((node) => ({
