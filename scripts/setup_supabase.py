@@ -34,9 +34,19 @@ def management(path, method="GET", payload=None):
             body = response.read()
             return json.loads(body) if body else None
     except urllib.error.HTTPError as error:
-        # Supabase responses can include secrets (especially auth configuration).
-        # Log only operation/status, never the response body or request headers.
-        raise SetupError(f"Supabase {method} {path.split('?')[0]} returned HTTP {error.code}. Check token permissions and the project reference.") from None
+        # Database requests contain only repository SQL and schema metadata.
+        # Include a sanitized SQL/validation reason for diagnosis; auth/key bodies stay private.
+        detail = ''
+        if path.startswith('/database/'):
+            try:
+                body = json.loads(error.read())
+                message = str(body.get('message') or body.get('error') or body.get('errors') or '')
+                message = re.sub(r'(sbp_|sb_secret_|sb_publishable_)[A-Za-z0-9_-]+', '[redacted]', message)
+                message = re.sub(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', '[redacted]', message)
+                detail = ' Database detail: ' + message[:1600]
+            except (ValueError, AttributeError):
+                pass
+        raise SetupError(f"Supabase {method} {path.split('?')[0]} returned HTTP {error.code}. Check token permissions and the project reference." + detail) from None
     except (urllib.error.URLError, TimeoutError):
         raise SetupError("Could not reach Supabase management API; no credentials were logged.") from None
 
@@ -85,6 +95,7 @@ def setup():
         if name in applied:
             print(f'Already applied: {file.name}')
             continue
+        print(f'::notice::Applying {file.name}', flush=True)
         management('/database/migrations', 'POST', {'name': name, 'query': file.read_text()})
         print(f'Applied: {file.name}')
     current = management('/config/auth')
