@@ -37,3 +37,32 @@ export function alignCards<T extends Rectangle>(
             : c.y,
   }));
 }
+
+/** Equal edge-to-edge gaps in current spatial order; expand to a 24px gap if crowded. */
+export function distributeCards<T extends Rectangle>(
+  cards: T[],
+  axis: "horizontal" | "vertical",
+): T[] {
+  if (cards.length < 3) return cards;
+  const horizontal = axis === "horizontal";
+  const start = (c: T) => (horizontal ? c.x : c.y);
+  const size = (c: T) => (horizontal ? c.width : c.height);
+  const sorted = [...cards].sort(
+    (a, b) => start(a) - start(b) || a.id.localeCompare(b.id),
+  );
+  const first = start(sorted[0]);
+  const end = Math.max(...sorted.map((c) => start(c) + size(c)));
+  const totalSize = sorted.reduce((sum, c) => sum + size(c), 0);
+  const naturalGap = (end - first - totalSize) / (cards.length - 1);
+  const gap = naturalGap < 0 ? 24 : naturalGap;
+  let cursor = first;
+  const positions = new Map<string, number>();
+  for (const card of sorted) {
+    positions.set(card.id, cursor);
+    cursor += size(card) + gap;
+  }
+  return cards.map((c) => ({
+    ...c,
+    ...(horizontal ? { x: positions.get(c.id)! } : { y: positions.get(c.id)! }),
+  }));
+}

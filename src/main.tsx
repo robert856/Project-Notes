@@ -45,7 +45,7 @@ import "@xyflow/react/dist/style.css";
 import "./style.css";
 import Markdown from "react-markdown";
 import { db, saveCard } from "./api";
-import { alignCards, type Alignment } from "./alignment";
+import { alignCards, distributeCards, type Alignment } from "./alignment";
 import { droppedUrl, youtubeId, storeLocalFile, readLocalFile } from "./drops";
 import {
   demoBoards,
@@ -228,6 +228,18 @@ function App() {
     [edges, setEdges] = useState<
       { id: string; source: string; target: string }[]
     >([]);
+  useEffect(() => {
+    if (db) return;
+    if (!projects.some((p) => p.id === project)) {
+      setProject(projects[0]?.id || "");
+      return;
+    }
+    if (!boards.some((b) => b.id === board && b.project_id === project)) {
+      const next = boards.find((b) => b.project_id === project);
+      setBoard(next?.id || "");
+      if (!next) setDashboard(true);
+    }
+  }, [projects, boards, project, board]);
   const canEdit = !db || role === "owner" || role === "editor";
   const current = boards.find((b) => b.id === board);
   const notify = (s: string) => setMessage(s);
@@ -571,7 +583,8 @@ function App() {
       );
     setArranging(false);
   };
-  const alignSelection = (direction: Alignment) => {
+  const alignSelection = (direction: Alignment | "horizontal" | "vertical") => {
+    if (!canEdit || arranging) return;
     const rectangles = selectedNodes.map((n) => ({
       id: n.id,
       x: n.position.x,
@@ -580,7 +593,10 @@ function App() {
       height: cards.find((c) => c.id === n.id)!.height,
     }));
     const aligned = new Map(
-      alignCards(rectangles, direction).map((c) => [c.id, c]),
+      (direction === "horizontal" || direction === "vertical"
+        ? distributeCards(rectangles, direction)
+        : alignCards(rectangles, direction)
+      ).map((c) => [c.id, c]),
     );
     const moved = selectedNodes.map((n) => ({
       ...n,
@@ -634,7 +650,7 @@ function App() {
         return;
       }
       setProject(data);
-      void load();
+      setDashboard(true);
     } else {
       const p = { id: crypto.randomUUID(), title: title.trim() };
       setProjects((v) => [...v, p]);
@@ -642,7 +658,51 @@ function App() {
       setDashboard(true);
     }
   };
+  const deleteProject = async () => {
+    const target = projects.find((p) => p.id === project);
+    if (!target || (db && role !== "owner")) return;
+    if (
+      !confirm(
+        `Delete “${target.title}” and all its boards and cards? This cannot be undone.`,
+      )
+    )
+      return;
+    if (db) {
+      const { data, error } = await db
+        .from("projects")
+        .delete()
+        .eq("id", target.id)
+        .select("id");
+      if (error || !data?.length) {
+        notify(
+          error?.message ||
+            "Project was not deleted. Only an owner can delete it.",
+        );
+        return;
+      }
+    }
+    const boardIds = new Set(
+      boards.filter((b) => b.project_id === target.id).map((b) => b.id),
+    );
+    const remaining = projects.filter((p) => p.id !== target.id);
+    setProjects(remaining);
+    setBoards((previous) => previous.filter((b) => b.project_id !== target.id));
+    setCards((previous) => previous.filter((c) => !boardIds.has(c.board_id)));
+    setProject(remaining[0]?.id || "");
+    setBoard("");
+    setQuery("");
+    setDashboard(true);
+    setEditing(null);
+    setEdges([]);
+    if (db) setRole("viewer");
+    notify("Project deleted.");
+  };
   const createBoard = async (source?: Board) => {
+    if (!projects.some((p) => p.id === project)) {
+      notify("Create a project first using the + beside Projects.");
+      return;
+    }
+
     const title = source ? source.title + " — copy" : prompt("Board name");
     if (!title?.trim()) return;
     const b: Board = {
@@ -900,6 +960,18 @@ function App() {
             </p>
           </div>
           <div className="header-buttons">
+            {projects.some((p) => p.id === project) &&
+              (!db || role === "owner") && (
+                <button
+                  className="button danger"
+                  onClick={() => void deleteProject()}
+                  aria-label="Delete project"
+                >
+                  <Trash2 size={15} />
+                  <span>Delete project</span>
+                </button>
+              )}
+
             <div className="collaborator-stack">
               <span className="avatar">A</span>
             </div>
@@ -1024,6 +1096,21 @@ function App() {
                 {direction[0].toUpperCase() + direction.slice(1)}
               </button>
             ))}
+            <span className="alignment-label">Distribute</span>
+            <button
+              aria-label="Distribute horizontally"
+              disabled={!canEdit || arranging || selectedNodes.length < 3}
+              onClick={() => alignSelection("horizontal")}
+            >
+              Horizontally
+            </button>
+            <button
+              aria-label="Distribute vertically"
+              disabled={!canEdit || arranging || selectedNodes.length < 3}
+              onClick={() => alignSelection("vertical")}
+            >
+              Vertically
+            </button>
             <span className="selection-help">
               {arranging
                 ? "Saving positions…"

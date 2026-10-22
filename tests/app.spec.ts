@@ -375,14 +375,101 @@ test("native file drops outside the canvas cannot replace the page", async ({
     );
     return d;
   });
-  await page
-    .locator(".react-flow__pane")
-    .dispatchEvent("drop", {
-      dataTransfer: transfer,
-      clientX: 700,
-      clientY: 450,
-    });
+  await page.locator(".react-flow__pane").dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: 700,
+    clientY: 450,
+  });
   await expect(
     page.locator(".react-flow__node").filter({ hasText: "canvas-image.png" }),
   ).toBeVisible();
+});
+
+test("distributes cards in both directions and saves the spacing", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Distribute horizontally", exact: true })
+    .click();
+  const equalGaps = async (axis: "x" | "y") =>
+    page.evaluate((axis) => {
+      const cards = JSON.parse(
+        localStorage.getItem("stillroom-cards") || "[]",
+      ).sort(
+        (a: Record<string, number>, b: Record<string, number>) =>
+          a[axis] - b[axis],
+      );
+      const size = axis === "x" ? "width" : "height";
+      const gaps = cards
+        .slice(1)
+        .map(
+          (c: Record<string, number>, i: number) =>
+            c[axis] - cards[i][axis] - cards[i][size],
+        );
+      return (
+        gaps.length > 1 &&
+        gaps.every((g: number) => Math.abs(g - gaps[0]) < 0.001)
+      );
+    }, axis);
+  await expect.poll(() => equalGaps("x")).toBe(true);
+  await page
+    .getByRole("button", { name: "Distribute vertically", exact: true })
+    .click();
+  await expect.poll(() => equalGaps("y")).toBe(true);
+  await page.reload();
+  expect(await equalGaps("x")).toBe(true);
+  expect(await equalGaps("y")).toBe(true);
+});
+
+test("project deletion requires confirmation, preserves another project, and persists", async ({
+  page,
+}) => {
+  await page.goto("/");
+  page.once("dialog", (d) => d.accept("Keep this project"));
+  await page
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "True Myth: Addison’s Midnight Walk",
+      exact: true,
+    })
+    .click();
+  page.once("dialog", (d) => d.dismiss());
+  await page
+    .getByRole("button", { name: "Delete project", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: "True Myth: Addison’s Midnight Walk",
+      exact: true,
+    }),
+  ).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page
+    .getByRole("button", { name: "Delete project", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: "True Myth: Addison’s Midnight Walk",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Keep this project", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  const state = await page.evaluate(() => ({
+    projects: JSON.parse(localStorage.getItem("stillroom-projects") || "[]"),
+    boards: JSON.parse(localStorage.getItem("stillroom-boards") || "[]"),
+    cards: JSON.parse(localStorage.getItem("stillroom-cards") || "[]"),
+  }));
+  expect(state.projects.map((p: { title: string }) => p.title)).toEqual([
+    "Keep this project",
+  ]);
+  expect(state.boards).toHaveLength(0);
+  expect(state.cards).toHaveLength(0);
 });
